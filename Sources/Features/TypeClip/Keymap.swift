@@ -7,20 +7,37 @@ import CoreGraphics
 // 布局敲不出的字符(汉字/emoji)不在表中, 由引擎回退 Unicode 注入。
 enum Keymap {
 
-    /// 取当前输入源的 Unicode 键盘布局; 失败返回 nil。
-    /// 当前源是 IMKit 输入法(中文等)时没有布局数据, 退回 ASCII 源,
-    /// 至少让 ASCII 字符仍可反查, 而不是整张表为空。
-    static func currentUnicodeLayout() -> UnsafePointer<UCKeyboardLayout>? {
-        if let p = unicodeLayout(of: TISCopyCurrentKeyboardInputSource()?.takeRetainedValue()) { return p }
-        return unicodeLayout(of: TISCopyCurrentASCIICapableKeyboardInputSource()?.takeRetainedValue())
+    /// 一份可用布局: 同时持有输入源与 CFData, 保证 UCKeyboardLayout 指针在整个反查期间有效。
+    ///
+    /// 陷阱: `TISGetInputSourceProperty` 返回的是不持有所有权的裸指针, 函数返回后输入源/数据
+    /// 可能被释放, 指针立刻变成悬垂指针。所以这里把 source 和 data 一起存下来(它们会 retain),
+    /// 调用方再用 `withExtendedLifetime` 把布局的生命周期覆盖到 UCKeyTranslate 循环结束。
+    private struct Layout {
+        let source: TISInputSource
+        let data: CFData
+        let pointer: UnsafePointer<UCKeyboardLayout>
     }
 
-    private static func unicodeLayout(of source: TISInputSource?) -> UnsafePointer<UCKeyboardLayout>? {
-        guard let source else { return nil }
-        guard let cfPtr = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return nil }
+    /// 用给定输入源构造布局; 源没有 Unicode 布局数据(如 IMKit 输入法)时返回 nil。
+    private static func layout(of source: TISInputSource?) -> Layout? {
+        guard let source,
+              let cfPtr = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return nil }
         let data = Unmanaged<CFData>.fromOpaque(cfPtr).takeUnretainedValue()
         guard let bytes = CFDataGetBytePtr(data) else { return nil }
-        return bytes.withMemoryRebound(to: UCKeyboardLayout.self, capacity: 1) { $0 }
+        // 指针指向的内存归 data 所有, 只要 Layout 持有 data 就一直有效;
+        // 用 assumingMemoryBound 直接绑定, 避免 withMemoryRebound 的闭包作用域限制。
+        let pointer = UnsafeRawPointer(bytes).assumingMemoryBound(to: UCKeyboardLayout.self)
+        return Layout(source: source, data: data, pointer: pointer)
+    }
+
+    /// 取当前输入源的 Unicode 键盘布局; 失败退回 ASCII 源,
+    /// 至少让 ASCII 字符仍可反查, 而不是整张表为空。
+    private static func makeLayout() -> Layout? {
+        if let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+           let layout = layout(of: source) {
+            return layout
+        }
+        return layout(of: TISCopyCurrentASCIICapableKeyboardInputSource()?.takeRetainedValue())
     }
 
     /// 当前输入源 ID(日志用)。
@@ -34,48 +51,51 @@ enum Keymap {
     /// 无修饰层最先插入(先到先得), 保证字母等默认不带 shift。
     static func build() -> [Character: (keyCode: CGKeyCode, flags: CGEventFlags)] {
         var map: [Character: (CGKeyCode, CGEventFlags)] = [:]
-        guard let layout = currentUnicodeLayout() else { return map }
-        // 陷阱: UCKeyTranslate 的 modifiers 参数不是 Carbon 事件修饰常量, 而是
-        // "键修饰态字节"= 常量右移 8 位(shiftKey 0x0200 → 0x02, optionKey 0x0800 → 0x08)。
-        // 直接传 UInt32(shiftKey) 会一直查到无修饰层——shift 层字符(含大写字母、# 等)
-        // 全部反查不到, 只能回退 Unicode 注入, 在堡垒机里就会退化成裸数字/小写。
-        // 第二个元素仍是事件用的 CGEventFlags(原值), 两者编码不同。
-        let combos: [(UInt32, CGEventFlags)] = [
-            (0, []),
-            (UInt32(shiftKey >> 8), .maskShift),
-            (UInt32(optionKey >> 8), .maskAlternate),
-            (UInt32((shiftKey | optionKey) >> 8), [.maskShift, .maskAlternate]),
-        ]
-        let keyboardType = UInt32(LMGetKbdType())
-        for keyCode in 0..<128 {
-            for (mods, flags) in combos {
-                var deadKey = UInt32(0)
-                var length = 0 // Swift 导入的 UniCharCount 按 Int 处理
-                var output = [UniChar](repeating: 0, count: 4)
-                let status = UCKeyTranslate(
-                    layout,
-                    UInt16(keyCode),
-                    UInt16(kUCKeyActionDown),
-                    mods,
-                    keyboardType,
-                    OptionBits(kUCKeyTranslateNoDeadKeysBit),
-                    &deadKey,
-                    4,
-                    &length,
-                    &output
-                )
-                guard status == noErr, length == 1 else { continue }
-                let s = String(utf16CodeUnits: output, count: length)
-                guard let ch = s.first, s.count == 1 else { continue }
-                let scalars = ch.unicodeScalars
-                guard scalars.count == 1, let scalar = scalars.first else { continue }
-                // 跳过换行/制表等控制字符(引擎单独处理 \n \t), 以及不可见字符
-                let v = scalar.value
-                if v < 32 || v == 0x7F || (0xF700...0xF8FF).contains(v) || (0x200B...0x200F).contains(v) || v == 0xFEFF { continue }
-                if map[ch] == nil { map[ch] = (CGKeyCode(keyCode), flags) }
+        guard let layout = makeLayout() else { return map }
+        // 布局持有 source/data, 这里显式延长到整个反查循环结束, 防止优化器提前释放。
+        return withExtendedLifetime(layout) { () -> [Character: (CGKeyCode, CGEventFlags)] in
+            // 陷阱: UCKeyTranslate 的 modifiers 参数不是 Carbon 事件修饰常量, 而是
+            // "键修饰态字节"= 常量右移 8 位(shiftKey 0x0200 → 0x02, optionKey 0x0800 → 0x08)。
+            // 直接传 UInt32(shiftKey) 会一直查到无修饰层——shift 层字符(含大写字母、# 等)
+            // 全部反查不到, 只能回退 Unicode 注入, 在堡垒机里就会退化成裸数字/小写。
+            // 第二个元素仍是事件用的 CGEventFlags(原值), 两者编码不同。
+            let combos: [(UInt32, CGEventFlags)] = [
+                (0, []),
+                (UInt32(shiftKey >> 8), .maskShift),
+                (UInt32(optionKey >> 8), .maskAlternate),
+                (UInt32((shiftKey | optionKey) >> 8), [.maskShift, .maskAlternate]),
+            ]
+            let keyboardType = UInt32(LMGetKbdType())
+            for keyCode in 0..<128 {
+                for (mods, flags) in combos {
+                    var deadKey = UInt32(0)
+                    var length = 0 // Swift 导入的 UniCharCount 按 Int 处理
+                    var output = [UniChar](repeating: 0, count: 4)
+                    let status = UCKeyTranslate(
+                        layout.pointer,
+                        UInt16(keyCode),
+                        UInt16(kUCKeyActionDown),
+                        mods,
+                        keyboardType,
+                        OptionBits(kUCKeyTranslateNoDeadKeysBit),
+                        &deadKey,
+                        4,
+                        &length,
+                        &output
+                    )
+                    guard status == noErr, length == 1 else { continue }
+                    let s = String(utf16CodeUnits: output, count: length)
+                    guard let ch = s.first, s.count == 1 else { continue }
+                    let scalars = ch.unicodeScalars
+                    guard scalars.count == 1, let scalar = scalars.first else { continue }
+                    // 跳过换行/制表等控制字符(引擎单独处理 \n \t), 以及不可见字符
+                    let v = scalar.value
+                    if v < 32 || v == 0x7F || (0xF700...0xF8FF).contains(v) || (0x200B...0x200F).contains(v) || v == 0xFEFF { continue }
+                    if map[ch] == nil { map[ch] = (CGKeyCode(keyCode), flags) }
+                }
             }
+            return map
         }
-        return map
     }
 }
 

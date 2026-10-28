@@ -52,6 +52,15 @@ final class TypeClipFeature: ObservableObject {
     @Published var clipboardOK = false
     @Published var progress: Double?
 
+    /// 总开关。关闭后全局热键与菜单动作都不再触发敲入，飞行中的敲入会立即中断。
+    @Published var enabled: Bool {
+        didSet {
+            defaults.set(enabled, forKey: "typeClipEnabled")
+            syncHotkeys()
+            if !enabled, engine.isActive { cancel() }
+        }
+    }
+
     /// 唯一的速度轴（ms/字符）。字符间隔、按住时长、随机抖动、修饰键延迟都由它派生。
     @Published var paceMs: Double {
         didSet {
@@ -97,9 +106,10 @@ final class TypeClipFeature: ObservableObject {
         didSet { defaults.set(debugLog, forKey: "debugLog") }
     }
 
-    // 纯 UI 折叠状态，不落盘。
+    // 纯 UI 状态，不落盘。
     @Published var advancedExpanded = false
     @Published var diagnosticsExpanded = false
+    @Published var debugConfirmPending = false
 
     init() {
         // 迁移：老版本只有 intervalMs 一个数，它就是速度轴。
@@ -114,6 +124,7 @@ final class TypeClipFeature: ObservableObject {
             mode = auto ? (restore ? .englishAndRestore : .englishOnly) : .off
         }
 
+        enabled = defaults.object(forKey: "typeClipEnabled") as? Bool ?? true
         paceMs = pace
         imeMode = mode
         pressEnterSuffix = defaults.bool(forKey: "pressEnterSuffix")
@@ -206,13 +217,11 @@ final class TypeClipFeature: ObservableObject {
     // MARK: 触发入口
 
     func handleHotkey(enter: Bool = false) {
-        // 热键是全局的：把面板切回「敲入」页，进度和错误才有地方显示。
-        let app = AppState.shared
-        if app.showingSettings || app.selectedFeature != .typeClip {
-            app.showingSettings = false
-            app.selectedFeature = .typeClip
-        }
-        refreshPasteboard()
+        guard enabled else { return }
+
+        // 热键是全局的：把主窗口切回「敲入」页，进度和错误才有地方显示。
+        // 走 open() 会触发模块的 onOpened()，剪贴板刷新只做一次。
+        AppState.shared.open(.feature(.typeClip))
 
         if engine.isActive {
             cancel()
@@ -223,6 +232,12 @@ final class TypeClipFeature: ObservableObject {
             AppState.shared.markUntrusted()
             lastError = "缺少辅助功能权限，无法模拟键盘"
             Permissions.requestAccess()
+            return
+        }
+
+        // 密码框等安全输入场景下系统会丢弃模拟按键，直接拦下来别让用户白等。
+        guard !IsSecureEventInputEnabled() else {
+            fail("当前应用处于安全输入状态（密码框），已阻止敲入")
             return
         }
 
