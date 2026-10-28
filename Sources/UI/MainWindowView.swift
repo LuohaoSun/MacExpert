@@ -86,6 +86,8 @@ struct MainWindowView: View {
             SmoothScrollView()
         case .feature(.translate):
             TranslationView()
+        case .feature(.monitor):
+            MonitorView()
         case .settings:
             SettingsView()
         }

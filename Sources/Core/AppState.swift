@@ -12,6 +12,7 @@ enum Feature: String, CaseIterable, Identifiable, Hashable {
     case keyMapping
     case smoothScroll
     case translate
+    case monitor
 
     var id: String { rawValue }
 
@@ -22,6 +23,7 @@ enum Feature: String, CaseIterable, Identifiable, Hashable {
         case .keyMapping: return "鼠标按键映射"
         case .smoothScroll: return "平滑滚动"
         case .translate: return "热键翻译"
+        case .monitor: return "系统监控"
         }
     }
 
@@ -31,6 +33,7 @@ enum Feature: String, CaseIterable, Identifiable, Hashable {
         case .keyMapping: return "鼠标按键 → 键盘组合键"
         case .smoothScroll: return "鼠标滚轮 · 平滑与反向"
         case .translate: return "⌥Space 呼出 · AI 翻译与词典"
+        case .monitor: return "菜单栏网速 · CPU / GPU"
         }
     }
 
@@ -40,6 +43,7 @@ enum Feature: String, CaseIterable, Identifiable, Hashable {
         case .keyMapping: return "computermouse"
         case .smoothScroll: return "scroll"
         case .translate: return "character.bubble"
+        case .monitor: return "speedometer"
         }
     }
 

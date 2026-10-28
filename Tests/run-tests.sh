@@ -48,6 +48,12 @@ SOURCES=(
   Sources/Features/Translation/TranslationClient.swift
   Sources/Features/Translation/TranslationFeature.swift
   Sources/Features/Translation/TranslationFeature+Module.swift
+  Sources/Features/Monitor/MonitorMetrics.swift
+  Sources/Features/Monitor/MonitorFeature.swift
+  Sources/Features/Monitor/MonitorFeature+Module.swift
+  Sources/UI/MainWindowController.swift
+  Sources/UI/WindowActivator.swift
+  Sources/UI/MonitorStatusItems.swift
   Tests/UnitTests.swift
 )
 

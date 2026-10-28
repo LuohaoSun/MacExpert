@@ -9,6 +9,7 @@ struct MenuBarMenu: View {
     @ObservedObject private var mapping = KeyMappingFeature.shared
     @ObservedObject private var scroll = SmoothScrollFeature.shared
     @ObservedObject private var translation = TranslationFeature.shared
+    @ObservedObject private var monitor = MonitorFeature.shared
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -23,6 +24,7 @@ struct MenuBarMenu: View {
 
         Toggle("启用平滑滚动", isOn: smoothEnabledBinding)
         Toggle("启用热键翻译", isOn: translationEnabledBinding)
+        Toggle("启用系统监控", isOn: monitorEnabledBinding)
 
         Divider()
 
@@ -74,6 +76,14 @@ struct MenuBarMenu: View {
         Binding(
             get: { translation.enabled },
             set: { translation.enabled = $0 }
+        )
+    }
+
+    /// 系统监控只读系统计数器，同样不需要辅助功能权限。
+    private var monitorEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { monitor.enabled },
+            set: { monitor.enabled = $0 }
         )
     }
 
