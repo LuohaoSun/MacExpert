@@ -206,13 +206,9 @@ final class TypeClipFeature: ObservableObject {
     // MARK: 触发入口
 
     func handleHotkey(enter: Bool = false) {
-        // 热键是全局的：把面板切回「敲入」页，进度和错误才有地方显示。
-        let app = AppState.shared
-        if app.showingSettings || app.selectedFeature != .typeClip {
-            app.showingSettings = false
-            app.selectedFeature = .typeClip
-        }
-        refreshPasteboard()
+        // 热键是全局的：把主窗口切回「敲入」页，进度和错误才有地方显示。
+        // 走 open() 会触发模块的 onOpened()，剪贴板刷新只做一次。
+        AppState.shared.open(.feature(.typeClip))
 
         if engine.isActive {
             cancel()
@@ -223,6 +219,12 @@ final class TypeClipFeature: ObservableObject {
             AppState.shared.markUntrusted()
             lastError = "缺少辅助功能权限，无法模拟键盘"
             Permissions.requestAccess()
+            return
+        }
+
+        // 密码框等安全输入场景下系统会丢弃模拟按键，直接拦下来别让用户白等。
+        guard !IsSecureEventInputEnabled() else {
+            fail("当前应用处于安全输入状态（密码框），已阻止敲入")
             return
         }
 

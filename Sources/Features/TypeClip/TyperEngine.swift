@@ -9,10 +9,11 @@ import CoreGraphics
 /// 与已验证的 Hammerspoon 版语义一致: 首字符前 lead 缓冲、字符间隔+jitter、
 /// 热键再按一次立即中断(runId 作废未触发的事件)。
 ///
-/// 执行模型: 先按配置把所有事件编排成带绝对偏移的时间表, 再由专用线程按绝对时刻
-/// 逐个发送。不用 GCD 定时器逐事件调度——定时器截止时间会被合并/推迟, 使修饰键与字符
-/// 的间隔被吞掉(远程端来不及登记 shift, shift+3 退化成裸 3); 手工按固定间隔逐个发送
+/// 执行模型: 先按配置把所有事件编排成带绝对偏移的时间表, 再交给 TimelinePlayer 在独立线程
+/// 按绝对时刻逐个发送。不用 GCD 定时器逐事件调度——定时器截止时间会被合并/推迟, 使修饰键与
+/// 字符的间隔被吞掉(远程端来不及登记 shift, shift+3 退化成裸 3); 手工按固定间隔逐个发送
 /// 才是稳定可行的方式。
+/// 事件原语本身由 EventInjector 提供, 与将来的按键映射共用。
 final class TyperEngine {
 
     struct Config {
@@ -32,10 +33,20 @@ final class TyperEngine {
     private(set) var activeUntil = Date.distantPast
     private var savedSource: TISInputSource?
     private var lastCfg: Config?
+    private let injector = EventInjector()
 
     // runId 保护: 主线程写, 发送线程读。
     private let runLock = NSLock()
     private var runId = 0
+
+    // 最后一个按下的字符键(键码 + 当时的 flags)。中断时补发一个抬起,
+    // 避免按住 hold 期间被打断导致字符键卡在按下状态。发送线程写, 主线程 cancel 读。
+    private struct KeyPress {
+        let keyCode: CGKeyCode
+        let flags: CGEventFlags
+    }
+    private let keyLock = NSLock()
+    private var lastKeyDown: KeyPress?
 
     /// (已敲入字符数, 总数)
     var onProgress: ((Int, Int) -> Void)?
@@ -59,38 +70,31 @@ final class TyperEngine {
         return runId == id
     }
 
-    /// 立即中断: 作废所有未触发的事件(发送线程检查 runId, 过期即停)。
+    /// 立即中断: 作废所有未触发的事件(播放线程检查 runId, 过期即停)。
+    /// 已经按下的修饰键/字符键在这里补发抬起, 避免中断后卡键。
     func cancel() {
         nextRunId()
         activeUntil = .distantPast
-        releaseStickyModifiers()
+        injector.releaseStickyModifiers()
+        if let press = takeLastKeyDown() {
+            injector.postKey(keyCode: press.keyCode, flags: press.flags, down: false, unicode: nil)
+        }
         if let cfg = lastCfg, cfg.restoreIME, let source = savedSource {
             IME.restore(source)
         }
         savedSource = nil
     }
 
-    /// 中断兜底: 修饰键按下后、抬起前被打断时, 抬起事件不会再发,
-    /// 补发 shift/option 的 flagsChanged(flags 为空 = 全部松开)避免卡在按下状态
-    /// (多余的抬起无副作用)。
-    private func releaseStickyModifiers() {
-        guard let source = CGEventSource(stateID: .combinedSessionState) else { return }
-        for key in [CGKeyCode(kVK_Shift), CGKeyCode(kVK_Option)] {
-            guard let event = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: false) else { continue }
-            event.type = .flagsChanged
-            event.flags = []
-            event.post(tap: .cgSessionEventTap)
-        }
-    }
-
     /// 清洗剪贴板文本: 去 \r 和控制字符(保留 \n \t)、去零宽字符、去结尾换行。
+    /// 注意只删 U+200B(零宽空格)、U+200E/U+200F(方向标记)、U+FEFF(BOM);
+    /// U+200C(ZWNJ) 和 U+200D(ZWJ) 必须保留, 否则家庭/职业等组合 emoji 会被拆散。
     static func clean(_ raw: String) -> String {
         var scalars = String.UnicodeScalarView()
         for scalar in raw.unicodeScalars {
             let v = scalar.value
             if v == 13 { continue }
             if v == 10 || v == 9 { scalars.append(scalar); continue }
-            if v < 32 || v == 0x7F || (0xF700...0xF8FF).contains(v) || (0x200B...0x200F).contains(v) || v == 0xFEFF { continue }
+            if v < 32 || v == 0x7F || (0xF700...0xF8FF).contains(v) || v == 0x200B || v == 0x200E || v == 0x200F || v == 0xFEFF { continue }
             scalars.append(scalar)
         }
         var text = String(scalars)
@@ -124,120 +128,39 @@ final class TyperEngine {
         var timeline: [String]    // 仅 debugLog 时有内容
     }
 
-    /// 按时间表逐个发送: 睡到该事件的绝对时刻再 post, 保证间隔精确(不受队列/定时器合并影响)。
-    private func runSchedule(_ steps: [Step], myRun: Int, source: CGEventSource?,
-                             total: Int, modifierDelay: TimeInterval, debugLog: Bool,
-                             restoreSource: TISInputSource?, restore: Bool,
-                             started: Date, finished: @escaping (RunResult) -> Void) {
-        var log: [String] = []
-        var sent = 0
-        var selfHeals = 0
-
-        func alive() -> Bool { isCurrent(myRun) }
-
-        /// 睡到绝对时刻; 期间每 20ms 检查一次取消。
-        func sleep(until target: Date) -> Bool {
-            while true {
-                if !alive() { return false }
-                let remain = target.timeIntervalSinceNow
-                if remain <= 0 { return true }
-                Thread.sleep(forTimeInterval: min(remain, 0.02))
-            }
-        }
-
-        var aborted = false
-        for step in steps {
-            guard sleep(until: started.addingTimeInterval(step.offset)) else { aborted = true; break }
-
-            // 自愈: 发带修饰位的字符前核对会话修饰状态; 合成 flagsChanged 偶发被合并/漏发,
-            // 丢失时补发一次再等一个 modifierDelay, 避免 shift+3 在远程端退化成裸 3。
-            if case let .key(_, flags, down, _) = step.action, down {
-                let state = CGEventSource.flagsState(.combinedSessionState)
-                var want = CGEventFlags([])
-                var repaired = ""
-                for (key, mask) in [(CGKeyCode(kVK_Shift), CGEventFlags.maskShift),
-                                    (CGKeyCode(kVK_Option), CGEventFlags.maskAlternate)] {
-                    guard flags.contains(mask), !state.contains(mask) else { continue }
-                    want.formUnion(Self.modifierBits(key))
-                    post(.modifier(keyCode: key, down: true, flags: want), source: source)
-                    repaired += Self.modTag(key) + "↓✚"
-                }
-                if !repaired.isEmpty {
-                    selfHeals += 1
-                    if debugLog, log.count < 500 {
-                        log.append(String(format: "%.3f %@(自愈补发)", Date().timeIntervalSince(started), repaired))
-                    }
-                    guard sleep(until: Date().addingTimeInterval(modifierDelay)) else { aborted = true; break }
-                }
-            }
-
-            post(step.action, source: source)
-            sent += 1
-            if debugLog, log.count < 500 {
-                log.append(String(format: "%.3f %@", Date().timeIntervalSince(started), step.label))
-            }
-            if let n = step.progress {
-                DispatchQueue.main.async { [weak self] in
-                    self?.onProgress?(n, total)
-                }
-            }
-        }
-
-        if !aborted, alive() {
-            // 所有事件发完, 等 duration 到点后收尾(时长含尾部余量)。
-            if let last = steps.last {
-                _ = sleep(until: started.addingTimeInterval(last.offset + 0.15))
-            }
-        }
-
-        let result = RunResult(aborted: aborted, eventsSent: sent, eventsTotal: steps.count,
-                               selfHeals: selfHeals, elapsed: Date().timeIntervalSince(started),
-                               timeline: log)
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            if restore, let src = restoreSource { IME.restore(src) }
-            self.savedSource = nil
-            finished(result)
-            if !aborted { self.onFinish?() }
-        }
-    }
-
-    private func post(_ action: Step.Action, source: CGEventSource?) {
+    /// 发送单个事件, 同时维护"最后按下的字符键"状态。
+    private func post(_ action: Step.Action) {
         switch action {
         case let .modifier(keyCode, down, flags):
-            // 修饰键必须是 flagsChanged 类型事件: 真实键盘的修饰键从不产生 keyDown/keyUp,
-            // 远程客户端靠 flagsChanged 跟踪修饰状态——实测给 shift 发 keyDown/keyUp 时
-            // 堡垒机不认(shift+3 退化成裸 3), 发 flagsChanged 才正确上屏 #。
-            guard let event = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: down) else { return }
-            event.type = .flagsChanged
-            event.flags = flags
-            event.post(tap: .cgSessionEventTap)
+            injector.postModifier(keyCode: keyCode, down: down, flags: flags)
         case let .key(keyCode, flags, down, unicode):
-            // 字符事件: flags 带修饰位(含设备位), 并像真实事件一样写入该字符的 unicode 串
-            // (真实键盘事件由系统填好, 合成事件不填, 读 unicode 串的接收方会拿不到字符)。
-            // 注意: 不要加 .maskNonCoalesced——带它的合成事件会被部分远程客户端当两个事件处理。
-            guard let event = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: down) else { return }
-            event.flags = flags
-            if let unicode {
-                let units = Array(String(unicode).utf16)
-                units.withUnsafeBufferPointer { buffer in
-                    event.keyboardSetUnicodeString(stringLength: units.count, unicodeString: buffer.baseAddress)
-                }
+            if down {
+                rememberKeyDown(keyCode, flags: flags)
+            } else {
+                forgetKeyDown()
             }
-            event.post(tap: .cgSessionEventTap)
+            injector.postKey(keyCode: keyCode, flags: flags, down: down, unicode: unicode)
         }
     }
 
-    // MARK: - 修饰键工具
+    // MARK: - 按下的字符键
 
-    /// 修饰键的修饰位 + 设备位(区分左右): NX_DEVICELSHIFTKEYMASK / NX_DEVICELALTKEYMASK。
-    private static func modifierBits(_ keyCode: CGKeyCode) -> CGEventFlags {
-        if Int(keyCode) == Int(kVK_Shift) { return [.maskShift, CGEventFlags(rawValue: 0x0002)] }
-        if Int(keyCode) == Int(kVK_Option) { return [.maskAlternate, CGEventFlags(rawValue: 0x0020)] }
-        return []
+    private func rememberKeyDown(_ keyCode: CGKeyCode, flags: CGEventFlags) {
+        keyLock.lock(); defer { keyLock.unlock() }
+        lastKeyDown = KeyPress(keyCode: keyCode, flags: flags)
     }
 
-    private static func modTag(_ key: CGKeyCode) -> String { Int(key) == Int(kVK_Shift) ? "S" : "A" }
+    private func forgetKeyDown() {
+        keyLock.lock(); defer { keyLock.unlock() }
+        lastKeyDown = nil
+    }
+
+    private func takeLastKeyDown() -> KeyPress? {
+        keyLock.lock(); defer { keyLock.unlock() }
+        let press = lastKeyDown
+        lastKeyDown = nil
+        return press
+    }
 
     // MARK: - 入口
 
@@ -245,6 +168,10 @@ final class TyperEngine {
     /// 布局敲不出的字符(汉字/emoji)回退 Unicode 注入。返回预计总时长。
     @discardableResult
     func start(text: String, pressEnter: Bool, cfg: Config) -> TimeInterval {
+        // 兜底: 安全输入(密码框等)开启时系统会丢弃所有合成事件。
+        // 正常入口会在 TypeClipFeature 里先拦并提示, 这里防止其他调用路径静默失败。
+        if IsSecureEventInputEnabled() { return 0 }
+
         cancel()
         lastCfg = cfg
         let myRun = nextRunId()
@@ -254,7 +181,6 @@ final class TyperEngine {
             IME.selectEnglish()
         }
 
-        let source: CGEventSource? = CGEventSource(stateID: .combinedSessionState)
         let keymap = Keymap.build()
         let returnKey = CGKeyCode(kVK_Return)
         let tabKey = CGKeyCode(kVK_Tab)
@@ -302,9 +228,9 @@ final class TyperEngine {
             let hadKeys = !curKeys.isEmpty
             if hadKeys {
                 for key in curKeys.reversed() {
-                    curFlags.subtract(Self.modifierBits(key))
+                    curFlags.subtract(EventInjector.modifierBits(key))
                     steps.append(Step(offset: releaseAt, action: .modifier(keyCode: key, down: false, flags: curFlags),
-                                      label: "\(Self.modTag(key))↑", progress: nil))
+                                      label: "\(EventInjector.modTag(key))↑", progress: nil))
                 }
                 endTime = max(endTime, releaseAt)
                 curKeys = []
@@ -317,9 +243,9 @@ final class TyperEngine {
             if !needKeys.isEmpty {
                 for key in needKeys {
                     curKeys.append(key)
-                    curFlags.formUnion(Self.modifierBits(key))
+                    curFlags.formUnion(EventInjector.modifierBits(key))
                     steps.append(Step(offset: charAt, action: .modifier(keyCode: key, down: true, flags: curFlags),
-                                      label: "\(Self.modTag(key))↓", progress: nil))
+                                      label: "\(EventInjector.modTag(key))↓", progress: nil))
                 }
                 endTime = max(endTime, charAt)
                 charAt += cfg.modifierDelay   // 修饰键按下后再等一会才发字符
@@ -387,9 +313,9 @@ final class TyperEngine {
         if !curKeys.isEmpty {
             let releaseAt = max(t, endTime + cfg.modifierDelay)
             for key in curKeys.reversed() {
-                curFlags.subtract(Self.modifierBits(key))
+                curFlags.subtract(EventInjector.modifierBits(key))
                 steps.append(Step(offset: releaseAt, action: .modifier(keyCode: key, down: false, flags: curFlags),
-                                  label: "\(Self.modTag(key))↑", progress: nil))
+                                  label: "\(EventInjector.modTag(key))↑", progress: nil))
             }
             endTime = max(endTime, releaseAt)
         }
@@ -424,19 +350,79 @@ final class TyperEngine {
         }
         writeLog(nil)
 
-        // 发送线程: 睡到每个事件的绝对时刻再发, 保证间隔精确。线程生命周期只有本次敲入。
+        // 播放线程: 睡到每个事件的绝对时刻再发, 保证间隔精确。线程生命周期只有本次敲入。
         let restoreSource = savedSource
         let startedAt = Date()
-        let thread = Thread { [weak self] in
-            guard let self else { return }
-            self.runSchedule(steps, myRun: myRun, source: source, total: total,
-                             modifierDelay: cfg.modifierDelay, debugLog: cfg.debugLog,
-                             restoreSource: restoreSource, restore: cfg.restoreIME,
-                             started: startedAt) { result in writeLog(result) }
+        var selfHeals = 0
+        var timeline: [String] = []
+
+        // 全流程共用的 runId 判据: 播放器、自愈等待、收尾都用它, 不另造 token。
+        let runIsCurrent: () -> Bool = { [weak self] in self?.isCurrent(myRun) ?? false }
+
+        // 把时间表翻译成播放器的 Step; 自愈补发折进字符 keyDown 的 action 里。
+        let playbackSteps = steps.map { step in
+            TimelinePlayer.Step(offset: step.offset, label: step.label, progress: step.progress) { [weak self] in
+                guard let self else { return false }
+
+                // 自愈: 发带修饰位的字符前核对会话修饰状态; 合成 flagsChanged 偶发被合并/漏发,
+                // 丢失时补发一次再等一个 modifierDelay, 避免 shift+3 在远程端退化成裸 3。
+                if case let .key(_, flags, down, _) = step.action, down {
+                    let state = CGEventSource.flagsState(.combinedSessionState)
+                    var want = CGEventFlags([])
+                    var repaired = ""
+                    for (key, mask) in [(CGKeyCode(kVK_Shift), CGEventFlags.maskShift),
+                                        (CGKeyCode(kVK_Option), CGEventFlags.maskAlternate)] {
+                        guard flags.contains(mask), !state.contains(mask) else { continue }
+                        want.formUnion(EventInjector.modifierBits(key))
+                        self.injector.postModifier(keyCode: key, down: true, flags: want)
+                        repaired += EventInjector.modTag(key) + "↓✚"
+                    }
+                    if !repaired.isEmpty {
+                        selfHeals += 1
+                        if cfg.debugLog, timeline.count < 500 {
+                            timeline.append(String(format: "%.3f %@(自愈补发)", Date().timeIntervalSince(startedAt), repaired))
+                        }
+                        guard TimelinePlayer.sleep(until: Date().addingTimeInterval(cfg.modifierDelay),
+                                                   isCurrent: runIsCurrent) else { return false }
+                    }
+                }
+
+                // 睡眠返回后到真正 post 之间仍可能被取消；再确认一次，缩小
+                // “取消瞬间刚好发出一个 keyDown、却没人补 keyUp”的窗口。
+                guard runIsCurrent() else { return false }
+                self.post(step.action)
+                if cfg.debugLog, timeline.count < 500 {
+                    timeline.append(String(format: "%.3f %@", Date().timeIntervalSince(startedAt), step.label))
+                }
+                return true
+            }
         }
-        thread.qualityOfService = .userInteractive
-        thread.name = "MacExpert.TyperEngine"
-        thread.start()
+
+        TimelinePlayer.play(
+            steps: playbackSteps,
+            startedAt: startedAt,
+            tailPadding: 0.15,
+            isCurrent: runIsCurrent,
+            onProgress: { [weak self] n in self?.onProgress?(n, total) },
+            onFinish: { [weak self] result in
+                guard let self else { return }
+                // 过期 run 只写结果日志; 不恢复 IME、不清 savedSource、不回调 onFinish。
+                // cancel() 已经恢复过 IME, 旧 run 不能再覆盖新 run 的输入法状态。
+                let current = self.isCurrent(myRun)
+                if current {
+                    if cfg.restoreIME, let src = restoreSource { IME.restore(src) }
+                    self.savedSource = nil
+                }
+                let outcome = RunResult(aborted: result.aborted,
+                                        eventsSent: result.stepsExecuted,
+                                        eventsTotal: result.stepsTotal,
+                                        selfHeals: selfHeals,
+                                        elapsed: result.elapsed,
+                                        timeline: timeline)
+                writeLog(outcome)
+                if current, !result.aborted { self.onFinish?() }
+            }
+        )
 
         return duration
     }

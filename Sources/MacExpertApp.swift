@@ -12,20 +12,30 @@ struct MacExpertApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            RootPanel()
+            MenuBarMenu()
         } label: {
             MenuBarLabel()
         }
-        .menuBarExtraStyle(.window)
+        .menuBarExtraStyle(.menu)
+
+        Window("MacExpert", id: "main") {
+            MainWindowView()
+        }
+        .defaultSize(width: 1000, height: 720)
+        .windowResizability(.contentMinSize)
+        .defaultLaunchBehavior(.suppressed)
+        .restorationBehavior(.disabled)
     }
 }
 
 /// 菜单栏图标：空闲时是 ⌘，敲入中换成键盘活动图标。
 struct MenuBarLabel: View {
     @ObservedObject private var clip = TypeClipFeature.shared
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         Image(systemName: clip.isActive ? "keyboard.badge.ellipsis" : "command")
+            .onAppear { MainWindowController.shared.register(openWindow) }
     }
 }
 
@@ -33,7 +43,15 @@ struct MenuBarLabel: View {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
+    private var installedMenu: NSMenu?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // 菜单栏应用默认没有 App 菜单；先装好，主窗口打开时就能直接用。
+        MainActor.assumeIsolated {
+            MainMenu.install(target: self)
+            installedMenu = NSApp.mainMenu
+        }
+
         #if MACEXPERT_DEV_HOOKS
         if handleDevHook(ProcessInfo.processInfo.arguments) { return }
         #endif
@@ -47,21 +65,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        HotkeyCenter.shared.register(
-            keyCode: UInt32(kVK_ANSI_V),
-            carbonModifiers: UInt32(cmdKey | controlKey),
-            id: 1
-        ) {
-            TypeClipFeature.shared.handleHotkey(enter: false)
-        }
-
-        HotkeyCenter.shared.register(
-            keyCode: UInt32(kVK_Return),
-            carbonModifiers: UInt32(cmdKey | controlKey),
-            id: 2
-        ) {
-            TypeClipFeature.shared.handleHotkey(enter: true)
-        }
+        // 各功能模块自己安装热键、订阅等资源。
+        FeatureRegistry.installAll()
 
         #if MACEXPERT_DEV_HOOKS
         // 分布式通知驱动入口（自动化测试用，等价于按热键）。
@@ -83,6 +88,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func applicationDidBecomeActive(_ notification: Notification) {
+        // SwiftUI 的 MenuBarExtra 场景可能在激活时重设主菜单；发现被换掉就装回来。
+        MainActor.assumeIsolated {
+            if let installedMenu, NSApp.mainMenu === installedMenu { return }
+            MainMenu.install(target: self)
+            self.installedMenu = NSApp.mainMenu
+        }
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        FeatureRegistry.prepareForTermination()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        MainActor.assumeIsolated {
+            MainWindowController.shared.show()
+        }
+        return true
+    }
+
+    @objc func openSettings(_ sender: Any?) {
+        MainActor.assumeIsolated {
+            AppState.shared.openSettings()
+            MainWindowController.shared.show()
+        }
+    }
+
+    @objc func showMainWindow(_ sender: Any?) {
+        MainActor.assumeIsolated {
+            MainWindowController.shared.show()
+        }
+    }
+
     #if MACEXPERT_DEV_HOOKS
     /// 处理开发/诊断钩子。返回 true = 已处理，不要继续走正常 GUI 启动。
     private func handleDevHook(_ args: [String]) -> Bool {
@@ -92,6 +134,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             print("clean:\(TyperEngine.clean("a\r\nb\tc").debugDescription)")
             fflush(stdout)
             exit(0)
+        }
+
+        if args.contains("--open-window") {
+            MainActor.assumeIsolated {
+                MainWindowController.shared.show()
+            }
+            return true
+        }
+
+        if args.contains("--open-window-inactive") {
+            RuntimeFlags.suppressWindowActivation = true
+            MainActor.assumeIsolated {
+                MainWindowController.shared.show(activate: false)
+            }
+            return true
         }
 
         if let index = args.firstIndex(of: "--preview"), args.indices.contains(index + 1) {
