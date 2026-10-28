@@ -39,7 +39,7 @@ enum PreviewRenderer {
             for (suffix, scheme) in [("light", ColorScheme.light), ("dark", ColorScheme.dark)] {
                 render(
                     MainWindowView(),
-                    width: 1000,
+                    width: 880,
                     height: 720,
                     scheme: scheme,
                     to: url.appendingPathComponent("\(name)-\(suffix).png")
@@ -54,7 +54,7 @@ enum PreviewRenderer {
         TypeClipFeature.shared.diagnosticsExpanded = true
         render(
             MainWindowView(),
-            width: 1000,
+            width: 880,
             height: 720,
             scheme: .light,
             to: url.appendingPathComponent(
@@ -70,7 +70,7 @@ enum PreviewRenderer {
         AppState.shared.section = .feature(.typeClip)
         render(
             MainWindowView(),
-            width: 1000,
+            width: 880,
             height: 720,
             scheme: .light,
             to: url.appendingPathComponent(
@@ -86,7 +86,7 @@ enum PreviewRenderer {
         for (suffix, scheme) in [("light", ColorScheme.light), ("dark", ColorScheme.dark)] {
             render(
                 MainWindowView(),
-                width: 1000,
+                width: 880,
                 height: 720,
                 scheme: scheme,
                 to: url.appendingPathComponent(
@@ -261,17 +261,25 @@ enum PreviewRenderer {
 
         let initialHeight = height ?? 700
         hosting.frame = NSRect(x: 0, y: 0, width: width, height: initialHeight)
+        hosting.autoresizingMask = [.width, .height]
+
+        // 离屏截图不会带上窗口背景，侧栏和透明区域会变成黑色。
+        // 垫一层窗口色再整体捕获，截图才和真实窗口一致。
+        let container = NSView(frame: hosting.frame)
+        container.wantsLayer = true
+        container.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        container.addSubview(hosting)
 
         let window = PreviewWindow(
-            contentRect: hosting.frame,
+            contentRect: container.frame,
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
         window.appearance = appearance
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.contentView = hosting
+        window.isOpaque = true
+        window.backgroundColor = .windowBackgroundColor
+        window.contentView = container
         window.setFrameOrigin(NSPoint(x: -20000, y: -20000))
         // 只做离屏渲染，不激活 App、不抢焦点。
         window.orderFrontRegardless()
@@ -286,18 +294,20 @@ enum PreviewRenderer {
             finalHeight = fit.height > 120 ? fit.height : initialHeight
         }
 
-        hosting.frame = NSRect(x: 0, y: 0, width: width, height: finalHeight)
         window.setContentSize(NSSize(width: width, height: finalHeight))
+        container.frame = NSRect(x: 0, y: 0, width: width, height: finalHeight)
+        hosting.frame = container.bounds
         hosting.layoutSubtreeIfNeeded()
-        hosting.displayIfNeeded()
+        container.layoutSubtreeIfNeeded()
+        container.displayIfNeeded()
 
         defer { window.orderOut(nil) }
 
-        guard let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else {
+        guard let rep = container.bitmapImageRepForCachingDisplay(in: container.bounds) else {
             print("preview failed (no rep): \(url.path)")
             return
         }
-        hosting.cacheDisplay(in: hosting.bounds, to: rep)
+        container.cacheDisplay(in: container.bounds, to: rep)
 
         guard let data = rep.representation(using: .png, properties: [:]) else { return }
         try? data.write(to: url)
