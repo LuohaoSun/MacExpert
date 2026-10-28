@@ -16,7 +16,7 @@ struct MainWindowView: View {
                     WindowActivator().frame(width: 0, height: 0)
                 }
             }
-            .frame(minWidth: 1000, minHeight: 640)
+            .frame(minWidth: 820, minHeight: 640)
             .onAppear { app.refreshOnActivation() }
     }
 
@@ -81,9 +81,11 @@ struct MainWindowView: View {
         case .feature(.typeClip):
             TypeClipView()
         case .feature(.keyMapping):
-            KeyMappingPrototypeView()
+            KeyMappingView()
+        case .feature(.smoothScroll):
+            SmoothScrollView()
         case .feature(.translate):
-            TranslatePrototypeView()
+            TranslationView()
         case .settings:
             SettingsView()
         }

@@ -21,7 +21,7 @@ struct MacExpertApp: App {
         Window("MacExpert", id: "main") {
             MainWindowView()
         }
-        .defaultSize(width: 1000, height: 720)
+        .defaultSize(width: 880, height: 720)
         .windowResizability(.contentMinSize)
         .defaultLaunchBehavior(.suppressed)
         .restorationBehavior(.disabled)
@@ -35,6 +35,8 @@ struct MenuBarLabel: View {
 
     var body: some View {
         Image(systemName: clip.isActive ? "keyboard.badge.ellipsis" : "command")
+            .accessibilityLabel(clip.isActive ? "MacExpert，正在敲入" : "MacExpert")
+            .help(clip.isActive ? "MacExpert：正在敲入" : "MacExpert")
             .onAppear { MainWindowController.shared.register(openWindow) }
     }
 }
@@ -67,6 +69,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 各功能模块自己安装热键、订阅等资源。
         FeatureRegistry.installAll()
+        MainActor.assumeIsolated {
+            TranslationPanelController.install()
+        }
 
         #if MACEXPERT_DEV_HOOKS
         // 分布式通知驱动入口（自动化测试用，等价于按热键）。
@@ -122,6 +127,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func showMainWindow(_ sender: Any?) {
         MainActor.assumeIsolated {
             MainWindowController.shared.show()
+        }
+    }
+
+    @objc func checkForUpdates(_ sender: Any?) {
+        MainActor.assumeIsolated {
+            UpdateChecker.shared.checkInteractively()
         }
     }
 

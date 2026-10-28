@@ -10,6 +10,7 @@ import ServiceManagement
 enum Feature: String, CaseIterable, Identifiable, Hashable {
     case typeClip
     case keyMapping
+    case smoothScroll
     case translate
 
     var id: String { rawValue }
@@ -18,7 +19,8 @@ enum Feature: String, CaseIterable, Identifiable, Hashable {
     var title: String {
         switch self {
         case .typeClip: return "剪贴板敲入"
-        case .keyMapping: return "按键映射"
+        case .keyMapping: return "鼠标按键映射"
+        case .smoothScroll: return "平滑滚动"
         case .translate: return "热键翻译"
         }
     }
@@ -27,7 +29,8 @@ enum Feature: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .typeClip: return "TypeClip · 逐键敲入"
         case .keyMapping: return "鼠标按键 → 键盘组合键"
-        case .translate: return "选中文本 → 译文"
+        case .smoothScroll: return "鼠标滚轮 · 平滑与反向"
+        case .translate: return "⌥Space 呼出 · AI 翻译与词典"
         }
     }
 
@@ -35,6 +38,7 @@ enum Feature: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .typeClip: return "keyboard"
         case .keyMapping: return "computermouse"
+        case .smoothScroll: return "scroll"
         case .translate: return "character.bubble"
         }
     }

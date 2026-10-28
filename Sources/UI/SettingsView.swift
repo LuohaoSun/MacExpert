@@ -30,12 +30,12 @@ struct SettingsView: View {
                     Circle()
                         .fill(app.trusted ? Color.green : Color.orange)
                         .frame(width: 8, height: 8)
-                        .accessibilityLabel(app.trusted ? "辅助功能已授权" : "尚未获得辅助功能权限")
+                        .accessibilityHidden(true)
                     Text(app.trusted ? "辅助功能已授权" : "尚未获得辅助功能权限")
                 }
 
                 Text(app.trusted
-                     ? "敲入与按键映射共用这一项权限。"
+                     ? "敲入与鼠标按键映射共用这一项权限。"
                      : "系统设置 → 隐私与安全性 → 辅助功能")
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -75,7 +75,7 @@ struct SettingsView: View {
                     }
                 }
 
-                Text("不影响功能本身是否可用；可在系统设置的键盘快捷键里检查冲突。")
+                Text("热键注册失败后，对应功能无法用快捷键触发；可在系统设置的键盘快捷键里检查冲突。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -101,10 +101,6 @@ struct SettingsView: View {
                         .font(.callout)
                         .foregroundStyle(.red)
                 }
-
-                Text("主窗口打开时会显示 Dock 图标和 App 菜单；关闭窗口后回到纯菜单栏状态。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -120,7 +116,7 @@ struct SettingsView: View {
                 LogPathRow(
                     status: clip.debugLog ? "含字符明文" : "不含剪贴板内容",
                     statusColor: clip.debugLog ? Color.orange : Color.secondary,
-                    openTitle: "打开日志",
+                    openTitle: "在 Finder 中显示",
                     showsFolderButton: true
                 )
             }
@@ -143,14 +139,21 @@ struct SettingsView: View {
                     Text("版本 \(app.version) · 自用 Mac 小工具集")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    Text("主窗口打开时会显示 Dock 图标和 App 菜单；关闭窗口后回到纯菜单栏状态。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer()
-            }
+                Spacer(minLength: 12)
 
-            Text("后续新增的小工具会继续加到这个窗口里，不需要再单独做菜单栏应用。")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .padding(.top, 10)
+                Button {
+                    UpdateChecker.shared.checkInteractively()
+                } label: {
+                    Label("检查更新", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
         }
     }
 

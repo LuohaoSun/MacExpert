@@ -28,6 +28,9 @@ enum FeatureRegistry {
 
     static let modules: [FeatureModule] = [
         TypeClipFeature.shared,
+        KeyMappingFeature.shared,
+        SmoothScrollFeature.shared,
+        TranslationFeature.shared,
     ]
 
     static func module(for feature: Feature) -> FeatureModule? {

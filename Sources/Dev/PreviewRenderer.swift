@@ -22,6 +22,8 @@ enum PreviewRenderer {
         TypeClipFeature.shared.clipboardSummary = "示例文本：把这段文字逐键敲入远程桌面 · 28 字符"
         TypeClipFeature.shared.clipboardOK = true
         AppState.shared.trusted = true
+        KeyMappingFeature.shared.applyPreviewData()
+        SmoothScrollFeature.shared.applyPreviewData()
 
         // 1. 主窗口各页：跟着 Feature.allCases 走，新增功能会自动多一张截图。
         let firstWindowNumber = 3
@@ -76,6 +78,164 @@ enum PreviewRenderer {
             )
         )
         AppState.shared.trusted = true
+
+        // 空状态：确认预设、说明和主按钮在 720pt 高度内排得下。
+        let emptyNumber = untrustedNumber + 1
+        AppState.shared.section = .feature(.keyMapping)
+        KeyMappingFeature.shared.applyEmptyPreviewData()
+        for (suffix, scheme) in [("light", ColorScheme.light), ("dark", ColorScheme.dark)] {
+            render(
+                MainWindowView(),
+                width: 1000,
+                height: 720,
+                scheme: scheme,
+                to: url.appendingPathComponent(
+                    String(format: "%02d-window-keymapping-empty-%@.png", emptyNumber, suffix)
+                )
+            )
+        }
+        KeyMappingFeature.shared.applyPreviewData()
+
+        // 编辑弹窗单独渲染一张，方便检查鼠标键/快捷键/名称三段布局。
+        if let sample = KeyMappingFeature.shared.mappings.first {
+            let draft = KeyMappingDraft(
+                id: sample.id,
+                button: sample.button,
+                combo: sample.combo,
+                name: sample.name,
+                enabled: sample.enabled,
+                isNew: false
+            )
+            let model = KeyMappingEditorModel(
+                draft: draft,
+                feature: KeyMappingFeature.shared
+            )
+            let context = KeyMappingEditorContext(id: draft.id, model: model)
+            let editorNumber = emptyNumber + 1
+            render(
+                KeyMappingEditor(context: context),
+                width: 520,
+                height: 700,
+                scheme: .light,
+                to: url.appendingPathComponent(
+                    String(format: "%02d-window-keymapping-editor-light.png", editorNumber)
+                )
+            )
+
+            // 新建状态：先清空映射，保证看到的是没有冲突的干净空表单。
+            KeyMappingFeature.shared.applyEmptyPreviewData()
+            let newDraft = KeyMappingDraft(
+                id: UUID(),
+                button: 3,
+                combo: nil,
+                name: "",
+                enabled: true,
+                isNew: true
+            )
+            let newModel = KeyMappingEditorModel(
+                draft: newDraft,
+                feature: KeyMappingFeature.shared
+            )
+            let newContext = KeyMappingEditorContext(id: newDraft.id, model: newModel)
+            render(
+                KeyMappingEditor(context: newContext),
+                width: 520,
+                height: 700,
+                scheme: .light,
+                to: url.appendingPathComponent(
+                    String(format: "%02d-window-keymapping-editor-new-light.png", editorNumber + 1)
+                )
+            )
+            KeyMappingFeature.shared.applyPreviewData()
+        }
+
+        // 翻译面板：词典、流式、错误与未配置。面板本身不读密钥文件、不发请求。
+        let panelNumber = emptyNumber + 3
+        let translation = TranslationFeature.shared
+
+        let entry = DictionaryEntry(
+            word: "hello",
+            phonetic: "/həˈləʊ/",
+            senses: [
+                DictionarySense(
+                    partOfSpeech: "int.",
+                    translation: "你好；喂",
+                    definition: "used as a greeting or to begin a phone conversation"
+                ),
+                DictionarySense(
+                    partOfSpeech: "n.",
+                    translation: "招呼；问候",
+                    definition: "an utterance of “hello”; a greeting"
+                ),
+            ],
+            examples: [
+                DictionaryExample(
+                    source: "Hello, it's nice to meet you.",
+                    target: "你好，很高兴见到你。"
+                ),
+                DictionaryExample(
+                    source: "She said hello to everyone in the room.",
+                    target: "她向房间里的每个人打了招呼。"
+                ),
+            ],
+            synonyms: ["hi", "greetings", "hey"]
+        )
+
+        translation.mode = .auto
+        translation.input = "hello"
+        translation.state = .dictionary(entry)
+        for (suffix, scheme) in [("light", ColorScheme.light), ("dark", ColorScheme.dark)] {
+            render(
+                TranslationPanel(feature: translation, onClose: {}, onOpenSettings: {}),
+                width: 600,
+                height: 480,
+                scheme: scheme,
+                to: url.appendingPathComponent(
+                    String(format: "%02d-panel-dictionary-%@.png", panelNumber, suffix)
+                )
+            )
+        }
+
+        translation.input = "This is a long sentence that should be translated as a paragraph."
+        translation.state = .streaming(
+            "这是一个用于检查流式翻译面板排版的示例译文。\n\n面板会保留换行，并在底部显示当前方向。"
+        )
+        for (suffix, scheme) in [("light", ColorScheme.light), ("dark", ColorScheme.dark)] {
+            render(
+                TranslationPanel(feature: translation, onClose: {}, onOpenSettings: {}),
+                width: 600,
+                height: 480,
+                scheme: scheme,
+                to: url.appendingPathComponent(
+                    String(format: "%02d-panel-streaming-%@.png", panelNumber + 1, suffix)
+                )
+            )
+        }
+
+        translation.input = "hello"
+        translation.state = .failed("API Key 无效或没有权限（401），请检查密钥。")
+        render(
+            TranslationPanel(feature: translation, onClose: {}, onOpenSettings: {}),
+            width: 600,
+            height: 480,
+            scheme: .light,
+            to: url.appendingPathComponent(
+                String(format: "%02d-panel-failed-light.png", panelNumber + 2)
+            )
+        )
+
+        translation.input = ""
+        translation.state = .idle
+        render(
+            TranslationPanel(feature: translation, onClose: {}, onOpenSettings: {}),
+            width: 600,
+            height: 480,
+            scheme: .dark,
+            to: url.appendingPathComponent(
+                String(format: "%02d-panel-not-configured-dark.png", panelNumber + 3)
+            )
+        )
+        translation.mode = .auto
 
         print("preview written to \(directory)")
         fflush(stdout)

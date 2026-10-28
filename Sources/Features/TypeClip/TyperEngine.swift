@@ -410,6 +410,10 @@ final class TyperEngine {
                 // cancel() 已经恢复过 IME, 旧 run 不能再覆盖新 run 的输入法状态。
                 let current = self.isCurrent(myRun)
                 if current {
+                    // 收尾回调比 activeUntil 的兜底时刻早 50ms。如果这里不主动失效，
+                    // SwiftUI 会在"仍算运行中"的那一刻重绘一次，之后没有新的 @Published
+                    // 变化，界面就会一直停在"正在敲入…"。
+                    self.activeUntil = .distantPast
                     if cfg.restoreIME, let src = restoreSource { IME.restore(src) }
                     self.savedSource = nil
                 }

@@ -16,6 +16,20 @@ extension TypeClipFeature: FeatureModule {
     var feature: Feature { .typeClip }
 
     func install() {
+        syncHotkeys()
+    }
+
+    /// 模块总开关同时控制全局热键的注册。
+    /// 只让处理函数 return 不够：Carbon 仍会吞掉按键，别的应用也拿不到。
+    func syncHotkeys() {
+        if enabled {
+            registerHotkeys()
+        } else {
+            unregisterHotkeys()
+        }
+    }
+
+    private func registerHotkeys() {
         HotkeyCenter.shared.register(
             keyCode: UInt32(kVK_ANSI_V),
             carbonModifiers: UInt32(cmdKey | controlKey),
@@ -35,6 +49,11 @@ extension TypeClipFeature: FeatureModule {
         }
     }
 
+    private func unregisterHotkeys() {
+        HotkeyCenter.shared.unregister(id: HotkeyID.typeClip)
+        HotkeyCenter.shared.unregister(id: HotkeyID.typeClipEnter)
+    }
+
     func onOpened() {
         refreshPasteboard(force: true)
     }
@@ -45,5 +64,6 @@ extension TypeClipFeature: FeatureModule {
 
     func prepareForTermination() {
         engine.cancel()
+        unregisterHotkeys()
     }
 }

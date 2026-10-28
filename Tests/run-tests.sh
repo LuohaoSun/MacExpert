@@ -16,6 +16,7 @@ OUT="build/tests/UnitTests"
 
 SOURCES=(
   Sources/Core/AppState.swift
+  Sources/Core/AppVersion.swift
   Sources/Core/AppLog.swift
   Sources/Core/HotkeyCenter.swift
   Sources/Core/FeatureModule.swift
@@ -25,6 +26,28 @@ SOURCES=(
   Sources/Features/TypeClip/TypeClipFeature+Module.swift
   Sources/Features/Shared/EventInjector.swift
   Sources/Features/Shared/TimelinePlayer.swift
+  Sources/Features/KeyMapping/KeyMapping.swift
+  Sources/Features/KeyMapping/MouseButtonTap.swift
+  Sources/Features/KeyMapping/ShortcutSender.swift
+  Sources/Features/KeyMapping/KeyMappingFeature.swift
+  Sources/Features/KeyMapping/KeyMappingFeature+Module.swift
+  Sources/Features/KeyMapping/KeyMappingEditorModel.swift
+  Sources/Features/SmoothScroll/SmoothScrollSample.swift
+  Sources/Features/SmoothScroll/SmoothScrollEngine.swift
+  Sources/Features/SmoothScroll/SmoothScrollStore.swift
+  Sources/Features/SmoothScroll/ScrollAcceleration.swift
+  Sources/Features/SmoothScroll/ScrollTap.swift
+  Sources/Features/SmoothScroll/ScrollPoster.swift
+  Sources/Features/SmoothScroll/SmoothScrollFeature.swift
+  Sources/Features/SmoothScroll/SmoothScrollFeature+Module.swift
+  Sources/Features/Translation/TranslationModels.swift
+  Sources/Features/Translation/TranslationClassifier.swift
+  Sources/Features/Translation/TranslationPrompt.swift
+  Sources/Features/Translation/TranslationSSE.swift
+  Sources/Features/Translation/TranslationProvider.swift
+  Sources/Features/Translation/TranslationClient.swift
+  Sources/Features/Translation/TranslationFeature.swift
+  Sources/Features/Translation/TranslationFeature+Module.swift
   Tests/UnitTests.swift
 )
 

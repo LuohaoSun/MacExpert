@@ -1,47 +1,37 @@
 import AppKit
+import ApplicationServices
 import SwiftUI
 
-/// 菜单栏原生菜单：状态、剪贴板摘要、敲入动作和主窗口入口。
-/// 不再使用自绘 popover，菜单项和快捷键都由系统渲染。
+/// 菜单栏原生菜单：只保留模块开关、打开主窗口、检查更新和退出。
+/// 状态、剪贴板摘要和敲入动作都放在主窗口里，菜单保持最小。
 struct MenuBarMenu: View {
-    @ObservedObject private var app = AppState.shared
     @ObservedObject private var clip = TypeClipFeature.shared
+    @ObservedObject private var mapping = KeyMappingFeature.shared
+    @ObservedObject private var scroll = SmoothScrollFeature.shared
+    @ObservedObject private var translation = TranslationFeature.shared
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Text(statusLine)
+        Toggle("启用剪贴板敲入", isOn: clipEnabledBinding)
             .onAppear {
                 MainWindowController.shared.register(openWindow)
-                app.refreshTrust()
-                clip.refreshPasteboard()
             }
-        Text(summaryLine)
 
-        if !app.trusted {
-            Button("去授权…") { Permissions.requestAccess() }
+        if !mapping.mappings.isEmpty {
+            Toggle("启用鼠标按键映射", isOn: mappingEnabledBinding)
         }
 
-        Divider()
-
-        if clip.isActive {
-            Button("中断敲入") { clip.cancel() }
-                .keyboardShortcut("v", modifiers: [.control, .command])
-        } else {
-            Button("敲入剪贴板") { clip.handleHotkey(enter: false) }
-                .keyboardShortcut("v", modifiers: [.control, .command])
-                .disabled(!clip.clipboardOK || !app.trusted)
-
-            Button("敲入并回车") { clip.handleHotkey(enter: true) }
-                .keyboardShortcut(.return, modifiers: [.control, .command])
-                .disabled(!clip.clipboardOK || !app.trusted)
-        }
+        Toggle("启用平滑滚动", isOn: smoothEnabledBinding)
+        Toggle("启用热键翻译", isOn: translationEnabledBinding)
 
         Divider()
 
         Button("打开主窗口") { openMainWindow() }
             .keyboardShortcut("0", modifiers: .command)
-        Button("设置…") { openSettings() }
-            .keyboardShortcut(",", modifiers: .command)
+
+        Button("检查更新…") {
+            UpdateChecker.shared.checkInteractively()
+        }
 
         Divider()
 
@@ -49,27 +39,45 @@ struct MenuBarMenu: View {
             .keyboardShortcut("q", modifiers: .command)
     }
 
-    private var statusLine: String {
-        if clip.isActive, let line = FeatureRegistry.statusLine() { return line }
-        if clip.isActive { return "正在敲入…" }
-        if !app.trusted { return "需要辅助功能权限" }
-        if !clip.clipboardOK { return "剪贴板没有文本" }
-        return "就绪 · 常驻菜单栏"
+    private var clipEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { clip.enabled },
+            set: { newValue in
+                clip.enabled = newValue
+                if newValue, !AXIsProcessTrusted() { Permissions.requestAccess() }
+            }
+        )
     }
 
-    private var summaryLine: String {
-        guard clip.clipboardOK else { return "剪贴板为空" }
-        let oneLine = clip.clipboardSummary.replacingOccurrences(of: "\n", with: " ")
-        let text = oneLine.count > 42 ? String(oneLine.prefix(42)) + "…" : oneLine
-        return "剪贴板：\(text)"
+    private var mappingEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { mapping.enabled },
+            set: { newValue in
+                mapping.enabled = newValue
+                if newValue, !AXIsProcessTrusted() { Permissions.requestAccess() }
+            }
+        )
+    }
+
+    private var smoothEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { scroll.enabled },
+            set: { newValue in
+                scroll.enabled = newValue
+                if newValue, !AXIsProcessTrusted() { Permissions.requestAccess() }
+            }
+        )
+    }
+
+    /// 翻译只用全局热键，不需要辅助功能权限，所以这里不弹授权。
+    private var translationEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { translation.enabled },
+            set: { translation.enabled = $0 }
+        )
     }
 
     private func openMainWindow() {
-        MainWindowController.shared.show()
-    }
-
-    private func openSettings() {
-        app.openSettings()
         MainWindowController.shared.show()
     }
 }

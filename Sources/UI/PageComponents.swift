@@ -66,7 +66,7 @@ struct SettingsRow<Trailing: View>: View {
                 trailing
             }
         } else {
-            HStack(spacing: 10) {
+            HStack(alignment: detail == nil ? .center : .top, spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                     if let detail {
@@ -77,6 +77,66 @@ struct SettingsRow<Trailing: View>: View {
                 }
                 Spacer(minLength: 12)
                 trailing
+            }
+        }
+    }
+}
+
+// MARK: - 可展开区域
+
+/// 可展开区域：标题整行都能点，chevron 只做视觉提示。
+/// 系统 DisclosureGroup 在 macOS 上只有小三角响应点击，命中区域太小。
+struct DisclosureRow<Content: View>: View {
+    let title: String
+    let systemImage: String
+    @Binding var isExpanded: Bool
+    let content: Content
+
+    init(
+        _ title: String,
+        systemImage: String,
+        isExpanded: Binding<Bool>,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.systemImage = systemImage
+        self._isExpanded = isExpanded
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.16)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .frame(width: 11)
+                        .accessibilityHidden(true)
+
+                    Label(title, systemImage: systemImage)
+                        .font(.headline)
+
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityLabel(title)
+            .accessibilityValue(isExpanded ? "已展开" : "已收起")
+            .help(isExpanded ? "收起\(title)" : "展开\(title)")
+
+            if isExpanded {
+                content
+                    .padding(.top, 12)
+                    .transition(.opacity)
             }
         }
     }
@@ -136,12 +196,12 @@ struct PermissionBanner: View {
 
 // MARK: - 日志路径
 
-/// 日志路径行：路径 + 可选状态文字，按需给出「打开」或「打开 + 打开文件夹」按钮。
+/// 日志路径行：路径 + 可选状态文字，按需给出「在 Finder 中显示」或再加「打开文件夹」。
 struct LogPathRow: View {
     var path: String = "~/Library/Logs/MacExpert.log"
     var status: String? = nil
     var statusColor: Color = .secondary
-    var openTitle: String = "打开"
+    var openTitle: String = "在 Finder 中显示"
     var showsFolderButton: Bool = false
 
     var body: some View {

@@ -8,13 +8,19 @@ import CoreGraphics
 /// - 修饰键必须是 .flagsChanged(真实键盘的修饰键从不产生 keyDown/keyUp), 远程客户端靠它跟踪修饰状态;
 /// - 字符事件必须带 flags(含左右设备位)并写入 unicode 串, 否则读 unicode 的接收方拿不到字符;
 /// - 不要加 .maskNonCoalesced, 带它的合成事件会被部分远程客户端当成两个事件处理;
-/// - 统一 post 到 .cgSessionEventTap。
+/// - 默认投递到 .cgSessionEventTap; 鼠标按键映射发送系统快捷键时改用私有事件源 + HID 层,
+///   否则 WindowServer 不把 ⌃← / ⌃→ 当成系统快捷键处理。
 final class EventInjector {
 
     private let source: CGEventSource?
+    private let tap: CGEventTapLocation
 
-    init() {
-        source = CGEventSource(stateID: .combinedSessionState)
+    init(
+        stateID: CGEventSourceStateID = .combinedSessionState,
+        tap: CGEventTapLocation = .cgSessionEventTap
+    ) {
+        source = CGEventSource(stateID: stateID)
+        self.tap = tap
     }
 
     /// 修饰键事件: 类型固定为 .flagsChanged, flags 表示当前所有修饰键的状态。
@@ -22,7 +28,7 @@ final class EventInjector {
         guard let event = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: down) else { return }
         event.type = .flagsChanged
         event.flags = flags
-        event.post(tap: .cgSessionEventTap)
+        event.post(tap: tap)
     }
 
     /// 字符事件: flags 带修饰位(含设备位), 并像真实事件一样写入该字符的 unicode 串
@@ -36,7 +42,7 @@ final class EventInjector {
                 event.keyboardSetUnicodeString(stringLength: units.count, unicodeString: buffer.baseAddress)
             }
         }
-        event.post(tap: .cgSessionEventTap)
+        event.post(tap: tap)
     }
 
     /// 中断兜底: 修饰键按下后、抬起前被打断时, 抬起事件不会再发,

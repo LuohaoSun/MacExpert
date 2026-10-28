@@ -23,6 +23,14 @@ enum MainMenu {
         )
         about.target = NSApp
         appMenu.addItem(about)
+
+        let updates = NSMenuItem(
+            title: "检查更新…",
+            action: #selector(AppDelegate.checkForUpdates(_:)),
+            keyEquivalent: ""
+        )
+        updates.target = target
+        appMenu.addItem(updates)
         appMenu.addItem(.separator())
 
         let settings = NSMenuItem(

@@ -5,6 +5,7 @@ import SwiftUI
 struct TypeClipView: View {
     @ObservedObject private var clip = TypeClipFeature.shared
     @ObservedObject private var app = AppState.shared
+    @ObservedObject private var hotkeys = HotkeyCenter.shared
 
     var body: some View {
         PageScaffold {
@@ -20,33 +21,54 @@ struct TypeClipView: View {
             shortcutCard
             useCaseCard
         }
+        .alert(
+            "开启诊断日志？",
+            isPresented: Binding(
+                get: { clip.debugConfirmPending },
+                set: { if !$0 { clip.debugConfirmPending = false } }
+            )
+        ) {
+            Button("取消", role: .cancel) {
+                clip.debugConfirmPending = false
+            }
+            Button("开启并记录明文", role: .destructive) {
+                clip.debugLog = true
+                clip.debugConfirmPending = false
+            }
+        } message: {
+            Text("开启后会记录被敲入的字符明文，等于剪贴板内容。只在排查问题时开启，完成后请立即关闭。")
+        }
     }
 
     // MARK: - 状态
 
     private var statusCard: some View {
         CardSurface {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 10) {
-                    Circle()
-                        .fill(clip.phase.color)
-                        .frame(width: 8, height: 8)
-                        .accessibilityLabel("状态：\(clip.phase.label)")
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(headline)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .top, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(statusTitle)
                             .font(.headline)
-                        Text(clip.clipboardSummary)
+                        Text(statusSubtitle)
                             .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                            .foregroundStyle(statusSubtitleColor)
+                            .lineLimit(2)
                             .truncationMode(.middle)
-                            .help(clip.clipboardSummary)
+                            .help(statusSubtitle)
                     }
 
                     Spacer(minLength: 12)
+
                     HStack(spacing: 8) {
-                        statusActions
+                        Text("启用")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+
+                        Toggle("", isOn: enabledBinding)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            .controlSize(.small)
+                            .accessibilityLabel("启用剪贴板敲入")
                     }
                     .fixedSize()
                 }
@@ -56,35 +78,76 @@ struct TypeClipView: View {
                         .tint(.orange)
                 }
             }
+            .overlay(alignment: .topLeading) {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 6, height: 6)
+                    .offset(x: -10, y: 8)
+                    .accessibilityHidden(true)
+            }
         }
     }
 
-    @ViewBuilder
-    private var statusActions: some View {
-        if clip.isActive {
-            Button("中断敲入", role: .destructive) { clip.cancel() }
-                .buttonStyle(.borderedProminent)
-                .tint(.red)
-        } else if app.trusted && clip.clipboardOK {
-            Button("敲入剪贴板") { clip.handleHotkey(enter: false) }
-                .buttonStyle(.borderedProminent)
-        } else {
-            Button("敲入剪贴板") { clip.handleHotkey(enter: false) }
-                .buttonStyle(.bordered)
-                .disabled(true)
-        }
-        Button("刷新") { clip.refreshPasteboard(force: true) }
-            .buttonStyle(.bordered)
-    }
+    private var statusTitle: String {
+        if !app.trusted { return "等待辅助功能权限" }
+        if !clip.enabled { return "剪贴板敲入已暂停" }
+        if !clip.clipboardOK { return "等待可敲入文本" }
 
-    private var headline: String {
         switch clip.phase {
-        case .idle: return "等待敲入"
+        case .idle: return "剪贴板敲入已启用"
         case .typing: return "正在敲入…"
         case .done: return "敲入完成"
         case .aborted: return "已中断"
         case .failed: return "无法敲入"
         }
+    }
+
+    private var statusSubtitle: String {
+        if !app.trusted { return "授权后按 ⌃⌘V 开始敲入" }
+        if !clip.enabled { return "热键已暂停，打开开关后恢复" }
+        if !clip.clipboardOK { return clipboardActionHint }
+        if let error = clip.lastError { return error }
+        if clip.isActive { return "\(clipboardLine) · 再按一次 ⌃⌘V 中断" }
+        return "\(clipboardLine) · 按 ⌃⌘V 开始"
+    }
+
+    /// 剪贴板不可敲入时给下一步动作，不重复状态标题。
+    private var clipboardActionHint: String {
+        let summary = clip.clipboardSummary
+        if summary.contains("图像") { return "剪贴板是图片，无法敲入；先复制一段文字。" }
+        if summary.contains("文件") { return "剪贴板是文件，无法敲入；先复制一段文字。" }
+        if summary.contains("空白") { return "剪贴板只有空白字符；先复制一段文字。" }
+        return "剪贴板没有文本；先复制一段文字。"
+    }
+
+    private var statusSubtitleColor: Color {
+        if !app.trusted || !clip.enabled || !clip.clipboardOK { return .secondary }
+        return clip.lastError == nil ? .secondary : .red
+    }
+
+    /// 文本摘要补上「剪贴板」标签；错误摘要本身就以「剪贴板」开头，不再重复。
+    private var clipboardLine: String {
+        clip.clipboardSummary.hasPrefix("剪贴板")
+            ? clip.clipboardSummary
+            : "剪贴板：\(clip.clipboardSummary)"
+    }
+
+    private var statusColor: Color {
+        if !app.trusted { return .orange }
+        if !clip.enabled { return .secondary }
+        switch clip.phase {
+        case .idle:
+            return clip.clipboardOK ? Theme.accent : .secondary
+        default:
+            return clip.phase.color
+        }
+    }
+
+    private var enabledBinding: Binding<Bool> {
+        Binding(
+            get: { clip.enabled },
+            set: { clip.enabled = $0 }
+        )
     }
 
     // MARK: - 敲入设置
@@ -95,26 +158,40 @@ struct TypeClipView: View {
                 Text("敲入设置")
                     .font(.headline)
 
-                SettingsRow(leading: "速度") {
-                    Slider(value: paceBinding, in: 50...500)
-                    Text("\(Int(clip.paceMs))ms")
-                        .font(.callout.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .frame(width: 56, alignment: .trailing)
+                VStack(alignment: .leading, spacing: 4) {
+                    SettingsRow(leading: "速度") {
+                        Slider(value: paceBinding, in: 50...500)
+                        Text("\(Int(clip.paceMs))ms")
+                            .font(.callout.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 56, alignment: .trailing)
+                    }
+
+                    Text(clip.manual ? effectiveDetail : clip.derivedDetail)
+                        .font(.caption)
+                        .foregroundStyle(clip.manual ? Color.orange : Color.secondary)
+                        .padding(.leading, 90)
                 }
 
                 Divider()
 
-                SettingsRow(leading: "输入法") {
-                    Picker("输入法", selection: imeBinding) {
-                        ForEach(IMEMode.allCases) { mode in
-                            Text(mode.label).tag(mode)
+                VStack(alignment: .leading, spacing: 4) {
+                    SettingsRow(leading: "输入法") {
+                        Picker("输入法", selection: imeBinding) {
+                            ForEach(IMEMode.allCases) { mode in
+                                Text(mode.label).tag(mode)
+                            }
                         }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                     }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(width: 160)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+
+                    Text(clip.imeMode.detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 90)
                 }
 
                 Divider()
@@ -127,11 +204,6 @@ struct TypeClipView: View {
                         .labelsHidden()
                         .toggleStyle(.switch)
                 }
-
-                Text(clip.manual ? effectiveDetail : clip.derivedDetail)
-                    .font(.caption)
-                    .foregroundStyle(clip.manual ? Color.orange : Color.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -145,7 +217,11 @@ struct TypeClipView: View {
 
     private var advancedCard: some View {
         CardSurface {
-            DisclosureGroup(isExpanded: advancedBinding) {
+            DisclosureRow(
+                "高级参数",
+                systemImage: "slider.horizontal.3",
+                isExpanded: advancedBinding
+            ) {
                 VStack(alignment: .leading, spacing: 10) {
                     SettingsRow("手动覆盖速度轴") {
                         Toggle("", isOn: manualBinding)
@@ -188,16 +264,16 @@ struct TypeClipView: View {
                         }
                     }
                 }
-                .padding(.top, 8)
-            } label: {
-                Label("高级参数", systemImage: "slider.horizontal.3")
-                    .font(.headline)
             }
 
             Divider()
                 .padding(.vertical, 12)
 
-            DisclosureGroup(isExpanded: diagnosticsBinding) {
+            DisclosureRow(
+                "诊断日志",
+                systemImage: "doc.text.magnifyingglass",
+                isExpanded: diagnosticsBinding
+            ) {
                 VStack(alignment: .leading, spacing: 10) {
                     SettingsRow(
                         "记录逐字符注入路径",
@@ -211,15 +287,11 @@ struct TypeClipView: View {
                     LogPathRow()
 
                     Text(clip.debugLog
-                         ? "打开后日志会含被敲入的字符明文（等于剪贴板内容），排查完请关掉"
-                         : "关闭时日志只记配置与统计，不含剪贴板内容")
+                         ? "正在记录被敲入的字符明文（等于剪贴板内容），排查完请立刻关闭"
+                         : "开启后会记录被敲入的字符明文（等于剪贴板内容），开启前会再次确认")
                         .font(.caption)
                         .foregroundStyle(clip.debugLog ? Color.orange : Color.secondary)
                 }
-                .padding(.top, 8)
-            } label: {
-                Label("诊断日志", systemImage: "doc.text.magnifyingglass")
-                    .font(.headline)
             }
         }
     }
@@ -272,10 +344,22 @@ struct TypeClipView: View {
                 SettingsRow("敲入并回车") {
                     HotkeyCaps(caps: ["⌃", "⌘", "↩"])
                 }
-                Text("敲入过程中再按一次任意热键即可中断。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if let failure = typeClipHotkeyFailure {
+                    Text("热键未注册：\(failure.message)。请检查系统键盘快捷键冲突。")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                } else {
+                    Text("敲入过程中再按一次任意热键即可中断。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
+        }
+    }
+
+    private var typeClipHotkeyFailure: HotkeyFailure? {
+        hotkeys.failures.first {
+            $0.id == HotkeyID.typeClip || $0.id == HotkeyID.typeClipEnter
         }
     }
 
@@ -330,6 +414,15 @@ struct TypeClipView: View {
     }
 
     private var debugBinding: Binding<Bool> {
-        Binding(get: { clip.debugLog }, set: { clip.debugLog = $0 })
+        Binding(
+            get: { clip.debugLog },
+            set: { newValue in
+                if newValue {
+                    clip.debugConfirmPending = true
+                } else {
+                    clip.debugLog = false
+                }
+            }
+        )
     }
 }
