@@ -68,7 +68,7 @@ struct MonitorView: View {
 
                 SettingsRow(
                     "网络速率",
-                    detail: "上行 / 下行两行显示，固定宽度"
+                    detail: "两行显示，宽度随数值收紧"
                 ) {
                     Toggle("", isOn: showNetworkBinding)
                         .labelsHidden()
@@ -90,7 +90,10 @@ struct MonitorView: View {
 
                 HStack(alignment: .center, spacing: 14) {
                     menuBarPreviewItem(
-                        width: MonitorStatusItems.networkWidth,
+                        width: MonitorStatusItems.width(for: [
+                            "↑ \(MonitorFormat.compactRate(monitor.uploadRate))",
+                            "↓ \(MonitorFormat.compactRate(monitor.downloadRate))"
+                        ]),
                         top: MenuBarPreviewLine(
                             prefix: "↑",
                             value: MonitorFormat.compactRate(monitor.uploadRate),
@@ -105,16 +108,19 @@ struct MonitorView: View {
                     )
 
                     menuBarPreviewItem(
-                        width: MonitorStatusItems.cpuWidth,
+                        width: MonitorStatusItems.width(for: [
+                            "C \(MonitorFormat.percent(monitor.cpuUsage))",
+                            "G \(MonitorFormat.percent(monitor.gpuUsage))"
+                        ]),
                         top: MenuBarPreviewLine(
                             prefix: "C",
                             value: MonitorFormat.percent(monitor.cpuUsage),
-                            color: .primary
+                            color: usageColor(monitor.cpuUsage)
                         ),
                         bottom: MenuBarPreviewLine(
                             prefix: "G",
                             value: MonitorFormat.percent(monitor.gpuUsage),
-                            color: .primary
+                            color: usageColor(monitor.gpuUsage)
                         ),
                         visible: monitor.showCPU
                     )
@@ -123,7 +129,7 @@ struct MonitorView: View {
                         Text("菜单栏预览")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Text("固定宽度 · 等宽数字")
+                        Text("自适应宽度 · 80% 起变色")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -174,7 +180,7 @@ struct MonitorView: View {
             Text(line.value)
                 .foregroundStyle(.primary)
         }
-        .font(.system(size: 9.5, weight: .regular))
+        .font(.system(size: 9.5, weight: .regular).monospacedDigit())
         .frame(height: 13, alignment: .leading)
     }
 
@@ -218,12 +224,12 @@ struct MonitorView: View {
                     metricTile(
                         "CPU",
                         MonitorFormat.percent(monitor.cpuUsage),
-                        color: Theme.green
+                        color: usageColor(monitor.cpuUsage)
                     )
                     metricTile(
                         "GPU",
                         MonitorFormat.percent(monitor.gpuUsage),
-                        color: .purple
+                        color: usageColor(monitor.gpuUsage)
                     )
                 }
 
@@ -237,6 +243,17 @@ struct MonitorView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    private func usageColor(_ value: Double?) -> Color {
+        switch MonitorFormat.usageLevel(value) {
+        case .normal:
+            return .primary
+        case .warning:
+            return .yellow
+        case .critical:
+            return .red
         }
     }
 

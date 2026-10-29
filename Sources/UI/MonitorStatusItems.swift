@@ -7,8 +7,17 @@ import AppKit
 @MainActor
 final class MonitorStatusItems: NSObject {
 
-    static let networkWidth: CGFloat = 50
-    static let cpuWidth: CGFloat = 42
+    static let networkWidth: CGFloat = 43
+    static let cpuWidth: CGFloat = 40
+
+    /// item 左右各留 2pt；宽度按两行里较长的一行计算。
+    static func width(for lines: [String]) -> CGFloat {
+        let font = MonitorTwoLineStatusView.font
+        let textWidth = lines
+            .map { ($0 as NSString).size(withAttributes: [.font: font]).width }
+            .max() ?? 0
+        return ceil(textWidth) + 4
+    }
 
     private let networkView = MonitorTwoLineStatusView(leadingInset: 2)
     private let cpuView = MonitorTwoLineStatusView(leadingInset: 2)
@@ -67,40 +76,41 @@ final class MonitorStatusItems: NSObject {
         let uploadDetail = MonitorFormat.detailedRate(upload)
         let downloadDetail = MonitorFormat.detailedRate(download)
         let interfaceName = interface ?? "未连接"
+        let uploadText = MonitorFormat.compactRate(upload)
+        let downloadText = MonitorFormat.compactRate(download)
+        let cpuText = MonitorFormat.percent(cpu)
+        let gpuText = MonitorFormat.percent(gpu)
 
-        networkView.setTop(
-            prefix: "↑",
-            value: MonitorFormat.compactRate(upload),
-            color: .labelColor
-        )
-        networkView.setBottom(
-            prefix: "↓",
-            value: MonitorFormat.compactRate(download),
-            color: .labelColor
-        )
+        networkView.setTop(prefix: "↑", value: uploadText, color: .labelColor)
+        networkView.setBottom(prefix: "↓", value: downloadText, color: .labelColor)
+        networkItem?.length = Self.width(for: ["↑ \(uploadText)", "↓ \(downloadText)"])
         setAccessibility(
             on: networkItem,
             text: "网络：上传 \(uploadDetail)，下载 \(downloadDetail)（\(interfaceName)）"
         )
 
-        cpuView.setTop(
-            prefix: "C",
-            value: MonitorFormat.percent(cpu),
-            color: .labelColor
-        )
-        cpuView.setBottom(
-            prefix: "G",
-            value: MonitorFormat.percent(gpu),
-            color: .labelColor
-        )
-        let gpuText = gpu == nil ? "GPU 不可用" : "GPU \(MonitorFormat.percent(gpu))"
+        cpuView.setTop(prefix: "C", value: cpuText, color: Self.usageColor(cpu))
+        cpuView.setBottom(prefix: "G", value: gpuText, color: Self.usageColor(gpu))
+        cpuItem?.length = Self.width(for: ["C \(cpuText)", "G \(gpuText)"])
+        let gpuAccessibility = gpu == nil ? "GPU 不可用" : "GPU \(gpuText)"
         setAccessibility(
             on: cpuItem,
-            text: "CPU \(MonitorFormat.percent(cpu))，\(gpuText)"
+            text: "CPU \(cpuText)，\(gpuAccessibility)"
         )
     }
 
     // MARK: - 私有
+
+    private static func usageColor(_ value: Double?) -> NSColor {
+        switch MonitorFormat.usageLevel(value) {
+        case .normal:
+            return .labelColor
+        case .warning:
+            return .systemYellow
+        case .critical:
+            return .systemRed
+        }
+    }
 
     private func makeItem(
         length: CGFloat,
@@ -163,6 +173,8 @@ final class MonitorStatusItems: NSObject {
 /// 所以 `hitTest` 固定返回 nil。
 final class MonitorTwoLineStatusView: NSView {
 
+    static let font = NSFont.monospacedDigitSystemFont(ofSize: 9.5, weight: .regular)
+
     private let leadingInset: CGFloat
     private let topLabel = MonitorTwoLineStatusView.makeLabel()
     private let bottomLabel = MonitorTwoLineStatusView.makeLabel()
@@ -213,7 +225,7 @@ final class MonitorTwoLineStatusView: NSView {
     }
 
     private func makeLine(prefix: String, value: String, color: NSColor) -> NSAttributedString {
-        let font = NSFont.systemFont(ofSize: 9.5, weight: .regular)
+        let font = Self.font
         let text = NSMutableAttributedString(
             string: prefix,
             attributes: [.font: font, .foregroundColor: color]
@@ -229,7 +241,7 @@ final class MonitorTwoLineStatusView: NSView {
 
     private static func makeLabel() -> NSTextField {
         let label = NSTextField(labelWithString: "")
-        label.font = NSFont.systemFont(ofSize: 9.5, weight: .regular)
+        label.font = font
         label.textColor = .labelColor
         label.alignment = .left
         label.maximumNumberOfLines = 1

@@ -1161,6 +1161,15 @@ private func testMonitorFormatting() {
     checkEqual(MonitorFormat.percent(23.6), "24%", "四舍五入到 24%")
     checkEqual(MonitorFormat.percent(140), "100%", "百分比上限 100")
     checkEqual(MonitorFormat.percent(-3), "0%", "百分比下限 0")
+
+    checkEqual(MonitorFormat.usageLevel(nil), .normal, "无数据不着色")
+    checkEqual(MonitorFormat.usageLevel(79.4), .normal, "79% 保持常规颜色")
+    checkEqual(MonitorFormat.usageLevel(79.5), .warning, "四舍五入到 80% 时变黄")
+    checkEqual(MonitorFormat.usageLevel(80), .warning, "80% 变黄")
+    checkEqual(MonitorFormat.usageLevel(99.4), .warning, "99% 仍为黄色")
+    checkEqual(MonitorFormat.usageLevel(99.5), .critical, "四舍五入到 100% 时变红")
+    checkEqual(MonitorFormat.usageLevel(100), .critical, "100% 变红")
+    checkEqual(MonitorFormat.usageLevel(140), .critical, "超过 100% 仍为红色")
 }
 
 private func testMonitorNetworkRate() {

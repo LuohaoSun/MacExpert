@@ -284,11 +284,29 @@ enum MonitorFormat {
         return "0 B/s"
     }
 
+    enum UsageLevel: Equatable {
+        case normal
+        case warning
+        case critical
+    }
+
     /// 百分比格式。没有数据时显示 `--`，与菜单栏保持一致。
     static func percent(_ value: Double?) -> String {
-        guard let value, value.isFinite else { return "--" }
-        let clamped = min(max(value, 0), 100)
-        return "\(Int(clamped.rounded()))%"
+        guard let percent = percentValue(value) else { return "--" }
+        return "\(percent)%"
+    }
+
+    /// 菜单栏着色阈值：显示 80% 起黄色，显示 100% 时红色。
+    static func usageLevel(_ value: Double?) -> UsageLevel {
+        guard let percent = percentValue(value) else { return .normal }
+        if percent >= 100 { return .critical }
+        if percent >= 80 { return .warning }
+        return .normal
+    }
+
+    private static func percentValue(_ value: Double?) -> Int? {
+        guard let value, value.isFinite else { return nil }
+        return Int(min(max(value, 0), 100).rounded())
     }
 
     private struct RateUnit {
