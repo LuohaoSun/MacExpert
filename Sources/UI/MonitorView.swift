@@ -174,7 +174,7 @@ struct MonitorView: View {
             Text(line.value)
                 .foregroundStyle(.primary)
         }
-        .font(.system(size: 9, weight: .medium).monospacedDigit())
+        .font(.system(size: 9.5, weight: .regular))
         .frame(height: 13, alignment: .leading)
     }
 

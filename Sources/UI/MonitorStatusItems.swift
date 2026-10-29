@@ -186,19 +186,21 @@ final class MonitorTwoLineStatusView: NSView {
     override func layout() {
         super.layout()
 
-        let half = floor(bounds.height / 2)
+        // 两行文字按 10pt 行距居中，比均分按钮高度更紧凑。
+        let lineHeight = min(11, bounds.height)
+        let pitch = max(0, lineHeight - 1)
         let width = max(0, bounds.width - leadingInset - 2)
         topLabel.frame = NSRect(
             x: leadingInset,
-            y: bounds.height - half,
+            y: bounds.midY + pitch / 2 - lineHeight / 2,
             width: width,
-            height: half
+            height: lineHeight
         )
         bottomLabel.frame = NSRect(
             x: leadingInset,
-            y: 0,
+            y: bounds.midY - pitch / 2 - lineHeight / 2,
             width: width,
-            height: half
+            height: lineHeight
         )
     }
 
@@ -211,7 +213,7 @@ final class MonitorTwoLineStatusView: NSView {
     }
 
     private func makeLine(prefix: String, value: String, color: NSColor) -> NSAttributedString {
-        let font = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .medium)
+        let font = NSFont.systemFont(ofSize: 9.5, weight: .regular)
         let text = NSMutableAttributedString(
             string: prefix,
             attributes: [.font: font, .foregroundColor: color]
@@ -227,7 +229,7 @@ final class MonitorTwoLineStatusView: NSView {
 
     private static func makeLabel() -> NSTextField {
         let label = NSTextField(labelWithString: "")
-        label.font = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .medium)
+        label.font = NSFont.systemFont(ofSize: 9.5, weight: .regular)
         label.textColor = .labelColor
         label.alignment = .left
         label.maximumNumberOfLines = 1
