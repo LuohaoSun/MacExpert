@@ -53,10 +53,15 @@ struct ScrollSample: Equatable {
     /// 部分会发送连续事件的高分辨率滚轮鼠标。
     var isTrackpadLike: Bool { phase != 0 || momentumPhase != 0 }
 
-    var hasDelta: Bool {
-        dxPoints != 0 || dyPoints != 0 || fixedDX != 0 || fixedDY != 0
-            || lineDeltaX != 0 || lineDeltaY != 0
+    var hasHorizontalDelta: Bool {
+        dxPoints != 0 || fixedDX != 0 || lineDeltaX != 0
     }
+
+    var hasVerticalDelta: Bool {
+        dyPoints != 0 || fixedDY != 0 || lineDeltaY != 0
+    }
+
+    var hasDelta: Bool { hasHorizontalDelta || hasVerticalDelta }
 
     /// 离散滚轮一行的名义距离，只用于把行增量换算成点。
     static let pointsPerLine: Double = 10
@@ -103,6 +108,9 @@ struct ScrollSample: Equatable {
         if sourceUserData == ScrollMarker.value { return .passThrough(.ownEvent) }
         if isTrackpadLike { return .passThrough(.trackpadLike) }
         if flags.contains(.maskCommand) { return .passThrough(.command) }
+        // Shift+滚轮是 macOS 自带的横向滚动手势，系统会把一维垂直增量
+        // 换到水平轴。这里先标记出来，由 plan 决定平滑接管还是原地翻转放行。
+        if flags.contains(.maskShift) { return .passThrough(.shift) }
         guard hasDelta else { return .passThrough(.noDelta) }
         return .takeOver
     }
@@ -133,7 +141,12 @@ struct ScrollSample: Equatable {
     ) -> ScrollPlan {
         switch disposition {
         case .passThrough(let reason):
-            return .passThrough(reason)
+            guard reason == .shift else { return .passThrough(reason) }
+            return shiftPlan(
+                smooth: smooth,
+                reverseVertical: reverseVertical,
+                reverseHorizontal: reverseHorizontal
+            )
         case .takeOver:
             guard smooth else {
                 return .modifyAndPass(
@@ -144,6 +157,35 @@ struct ScrollSample: Equatable {
             let aimed = reversed(vertical: reverseVertical, horizontal: reverseHorizontal)
             return .swallowAndSmooth(dx: aimed.scrollDX, dy: aimed.scrollDY)
         }
+    }
+
+    /// Shift+滚轮是垂直滚轮产生的横向滚动。平滑时自己换算成水平增量，
+    /// 不再依赖系统换轴；不平滑时保留原生事件，只按反向开关翻转承载
+    /// 增量的那条轴。
+    private func shiftPlan(
+        smooth: Bool,
+        reverseVertical: Bool,
+        reverseHorizontal: Bool
+    ) -> ScrollPlan {
+        let horizontal: Double
+        if hasHorizontalDelta {
+            horizontal = scrollDX
+        } else if hasVerticalDelta {
+            horizontal = scrollDY
+        } else {
+            return .passThrough(.shift)
+        }
+        guard horizontal != 0 else { return .passThrough(.shift) }
+
+        let reverse = reverseVertical || reverseHorizontal
+        if smooth {
+            return .swallowAndSmooth(dx: reverse ? -horizontal : horizontal, dy: 0)
+        }
+        guard reverse else { return .passThrough(.shift) }
+        if hasHorizontalDelta {
+            return .modifyAndPass(vertical: false, horizontal: true)
+        }
+        return .modifyAndPass(vertical: true, horizontal: false)
     }
 }
 
@@ -158,6 +200,7 @@ enum ScrollPassthrough: String, Equatable {
     case ownEvent
     case trackpadLike
     case command
+    case shift
     case noDelta
 
     var label: String {
@@ -165,6 +208,7 @@ enum ScrollPassthrough: String, Equatable {
         case .ownEvent: return "自身合成"
         case .trackpadLike: return "触控板/手势设备"
         case .command: return "⌘ 缩放"
+        case .shift: return "Shift 横向滚动"
         case .noDelta: return "无增量"
         }
     }
