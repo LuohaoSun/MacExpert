@@ -2,7 +2,7 @@ import AppKit
 import ApplicationServices
 import SwiftUI
 
-/// 菜单栏原生菜单：只保留模块开关、打开主窗口、检查更新和退出。
+/// 菜单栏原生菜单：只保留打开主窗口、模块开关和退出。
 /// 状态、剪贴板摘要和敲入动作都放在主窗口里，菜单保持最小。
 struct MenuBarMenu: View {
     @ObservedObject private var clip = TypeClipFeature.shared
@@ -13,10 +13,15 @@ struct MenuBarMenu: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Toggle("启用剪贴板敲入", isOn: clipEnabledBinding)
+        Button("打开主窗口") { openMainWindow() }
+            .keyboardShortcut("0", modifiers: .command)
             .onAppear {
                 MainWindowController.shared.register(openWindow)
             }
+
+        Divider()
+
+        Toggle("启用剪贴板敲入", isOn: clipEnabledBinding)
 
         if !mapping.mappings.isEmpty {
             Toggle("启用鼠标按键映射", isOn: mappingEnabledBinding)
@@ -25,15 +30,6 @@ struct MenuBarMenu: View {
         Toggle("启用平滑滚动", isOn: smoothEnabledBinding)
         Toggle("启用热键翻译", isOn: translationEnabledBinding)
         Toggle("启用系统监控", isOn: monitorEnabledBinding)
-
-        Divider()
-
-        Button("打开主窗口") { openMainWindow() }
-            .keyboardShortcut("0", modifiers: .command)
-
-        Button("检查更新…") {
-            UpdateChecker.shared.checkInteractively()
-        }
 
         Divider()
 
