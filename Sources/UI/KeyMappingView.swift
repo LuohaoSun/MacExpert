@@ -440,16 +440,15 @@ struct KeyMappingView: View {
                 )
                 if hasArrowSpaceMapping {
                     tip(
-                        icon: "exclamationmark.triangle",
-                        text: Text("**⌃← / ⌃→ 是系统保留的切桌面快捷键。** macOS 对合成方向键的系统快捷键支持不稳定；如果经常失效，可在系统设置里把「左/右切换桌面」改成 ⌃1 / ⌃2，再把映射改成对应组合。"),
-                        color: .orange
+                        icon: "arrow.left.arrow.right",
+                        text: Text("**⌃← / ⌃→ 依赖系统里的「左/右切换桌面」快捷键。** 如果你改过系统快捷键，映射也要改成相同的组合。")
                     )
                 }
             }
         }
     }
 
-    /// macOS 对合成 ⌃← / ⌃→ 的系统快捷键支持不稳定，命中时给一条明确指引。
+    /// 命中切桌面组合时，提醒映射要和系统快捷键保持一致。
     private var hasArrowSpaceMapping: Bool {
         mapping.mappings.contains { item in
             item.enabled

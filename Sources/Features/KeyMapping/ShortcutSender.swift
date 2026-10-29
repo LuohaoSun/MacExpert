@@ -56,9 +56,12 @@ final class ShortcutSender {
             pause(delay)
         }
 
-        injector.postKey(keyCode: combo.keyCode, flags: flags, down: true, unicode: nil)
+        // 方向键 / F 键在真实事件里带 Function 位，系统的 symbolic hotkey
+        // 按这个位匹配；缺了它 ⌃← / ⌃→ 只会被当成普通方向键。
+        let keyFlags = combo.keyEventFlags(base: flags)
+        injector.postKey(keyCode: combo.keyCode, flags: keyFlags, down: true, unicode: nil)
         pause(delay)
-        injector.postKey(keyCode: combo.keyCode, flags: flags, down: false, unicode: nil)
+        injector.postKey(keyCode: combo.keyCode, flags: keyFlags, down: false, unicode: nil)
         pause(delay)
 
         for modifier in combo.orderedModifiers.reversed() {

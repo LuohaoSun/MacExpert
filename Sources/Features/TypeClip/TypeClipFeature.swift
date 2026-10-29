@@ -235,12 +235,6 @@ final class TypeClipFeature: ObservableObject {
             return
         }
 
-        // 密码框等安全输入场景下系统会丢弃模拟按键，直接拦下来别让用户白等。
-        guard !IsSecureEventInputEnabled() else {
-            fail("当前应用处于安全输入状态（密码框），已阻止敲入")
-            return
-        }
-
         let pb = NSPasteboard.general
         guard let raw = pb.string(forType: .string) else {
             let kinds = (pb.types ?? []).map(\.rawValue)

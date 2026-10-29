@@ -4,10 +4,10 @@
 
 ## 当前状态
 
-- 当前版本：`1.2.0`（build `7`），发布标签 `v1.2.0`。
-- 发布资产：`MacExpert-1.2.0.dmg`，SHA-256 `7915dda5ac469ff951ea387046f146228af210660928f0f63abf333c2e93c29b`。
+- 当前版本：`1.2.1`（build `8`），发布标签 `v1.2.1`。
+- 发布资产：`MacExpert-1.2.1.dmg`，SHA-256 `de4efb3d722e5d0847fe2db38e1ef0463c72253576fc3dcd70f89eed6c90803f`。
 - 本机安装位置：`/Applications/MacExpert.app`。
-- 单元测试：`./build.sh test`，当前 **458 项检查**。
+- 单元测试：`./build.sh test`，当前 **466 项检查**。
 - 发布包是自签、未公证的；`spctl` 拒绝是预期行为，不要为了过 Gatekeeper 去改签名流程，除非用户明确要求产品化。
 
 ## 硬约束
@@ -112,6 +112,8 @@
 └── Docs/
     ├── RELEASE_NOTES-1.0.0.md
     ├── RELEASE_NOTES-1.1.0.md
+    ├── RELEASE_NOTES-1.2.0.md
+    ├── RELEASE_NOTES-1.2.1.md
     ├── key-mapping-product-spec.md
     └── images/              # README 产品截图
 ```
@@ -136,12 +138,14 @@
 - 键码优先：按当前键盘布局反查键码，真实合成按键；布局敲不出的字符（中文、emoji）走 Unicode 注入。
 - 修饰键加固：连续同修饰字符整段按住 Shift，修饰键延迟至少 100ms，发字符前按 `flagsState` 自愈。
 - 速度轴派生字符间隔、按住时长、抖动和修饰键延迟；输入法三态：不动 / 切英文 / 切英文并恢复。
+- 安全输入（密码框）不做特殊拦截：`IsSecureEventInputEnabled()` 是全局状态，不能作为敲入前置条件；系统是否接收合成事件交给系统处理，不重试、不加提示。
 - 调试日志会记录明文，默认关闭；不要把它改成默认开启。
 
 ### 鼠标按键映射
 
 - 监听鼠标按钮 2–31，命中映射后拦截原行为；映射在鼠标松开后发送，默认再等 30ms。
 - 发送系统快捷键必须走私有事件源 + `.cghidEventTap`；只发到前台 App 的路径不足以触发系统级快捷键。
+- 方向键、翻页键和 F 键的合成事件必须带 `.maskSecondaryFn`：真实键盘事件自带 Function 位，系统 symbolic hotkey（`⌃←` / `⌃→` 的掩码是 `0x840000`）按这个位匹配。漏掉时桌面不切换，而且看起来像「系统快捷键不稳定」。逻辑在 `KeyCombo.keyEventFlags(base:)`。
 - 录制 `⌃←` / `⌃→` 这类系统保留组合时，临时启用键盘 CGEventTap；这是录制路径，不要常驻。
 - 厂商驱动可能先把侧键改写成键盘事件或「无操作」；这类键不会出现在鼠标监听里。
 - 映射、总开关和发送间隔存 `UserDefaults`，重启保留。
@@ -222,5 +226,5 @@
 
 - 产品说明：`README.md`
 - 键映射详细规格：`Docs/key-mapping-product-spec.md`
-- 当前版本发布说明：`Docs/RELEASE_NOTES-1.1.0.md`
+- 当前版本发布说明：`Docs/RELEASE_NOTES-1.2.1.md`
 - 签名脚本：`Scripts/setup-dev-signing.sh`
