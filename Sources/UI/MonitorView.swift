@@ -159,7 +159,7 @@ struct MonitorView: View {
             previewLine(top)
             previewLine(bottom)
         }
-        .padding(.leading, 7)
+        .padding(.horizontal, 2)
         .frame(width: width, height: 26, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 5, style: .continuous)
