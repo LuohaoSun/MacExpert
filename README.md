@@ -1,8 +1,8 @@
 # MacExpert
 
-MacExpert 是一个常驻 macOS 菜单栏的小工具集，把四件日常小事放进同一个窗口：把剪贴板文字敲进远程桌面、把鼠标侧键变成快捷键、让滚轮滚得更顺手，以及按 `⌥Space` 快速翻译。
+MacExpert 是一个常驻 macOS 菜单栏的小工具集，把五件日常小事放进同一个窗口：把剪贴板文字敲进远程桌面、把鼠标侧键变成快捷键、让滚轮滚得更顺手、按 `⌥Space` 快速翻译，以及在菜单栏盯住网速和 CPU / GPU。
 
-当前版本 **1.0.0** · [下载](https://github.com/LuohaoSun/MacExpert/releases/latest) · [发布说明](Docs/RELEASE_NOTES-1.0.0.md)
+当前版本 **1.1.0** · [下载](https://github.com/LuohaoSun/MacExpert/releases/latest) · [发布说明](Docs/RELEASE_NOTES-1.1.0.md)
 
 ## 剪贴板敲入
 
@@ -46,11 +46,23 @@ MacExpert 是一个常驻 macOS 菜单栏的小工具集，把四件日常小事
 - 兼容 OpenAI Chat Completions 接口，可以填写自己的服务地址、模型和 API Key。
 - API Key 只保存在本机应用支持目录，应用日志不记录 Key，也不记录你输入的文本。
 
+## 系统监控
+
+菜单栏用两个双行图标显示实时网速和 CPU / GPU 利用率，不用再装 MenuMeters 一类工具。
+
+<img src="Docs/images/system-monitor.png" width="860" alt="MacExpert 系统监控界面">
+
+- 网络图标上行、下行各占一行；CPU / GPU 图标分别显示两个利用率。
+- 利用率低于 80% 保持常规颜色，80% 起变黄，显示到 100% 变红。
+- 采样间隔可选 1、2、5 秒；网速按系统主接口统计。
+- GPU 只读取 IOAccelerator 暴露的利用率，不读取温度、功耗或频率。
+- 只读系统计数器，不需要辅助功能权限。
+
 ## 菜单栏
 
-菜单栏只保留模块开关、「打开主窗口」、「检查更新…」和「退出」。主窗口打开时会临时显示 Dock 图标和 App 菜单，关闭后回到纯菜单栏状态，不占 Dock。
+菜单栏只保留「打开主窗口」、各模块开关和「退出」。主窗口打开时会临时显示 Dock 图标和 App 菜单，关闭后回到纯菜单栏状态，不占 Dock。
 
-「检查更新…」会查询 GitHub Releases 的最新正式版；发现新版本时打开对应发布页，不自动下载或安装。
+「打开主窗口」在菜单最上方。检查更新放在设置页的「关于」卡片里，只查询 GitHub Releases 的最新正式版，不自动下载或安装。
 
 ## 安装
 

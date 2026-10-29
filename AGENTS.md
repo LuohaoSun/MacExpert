@@ -4,10 +4,10 @@
 
 ## 当前状态
 
-- 当前版本：`1.0.0`（build `5`），GitHub Release `v1.0.0` 已发布。
-- 发布提交：`34285f5`；发布资产：`MacExpert-1.0.0.dmg`，SHA-256 `e6d2afa0b28e3312992eeabdd990c2b6cec95137c4e8836142d0898ed8fc4c8d`。
+- 当前版本：`1.1.0`（build `6`），发布标签 `v1.1.0`。
+- 发布资产：`MacExpert-1.1.0.dmg`，SHA-256 `68fb6b36893e506764386995061108ecc13d9c8b5583e1bc2c16c5062f3fabee`。
 - 本机安装位置：`/Applications/MacExpert.app`。
-- 单元测试：`./build.sh test`，当前 **352 项检查**。
+- 单元测试：`./build.sh test`，当前 **429 项检查**。
 - 发布包是自签、未公证的；`spctl` 拒绝是预期行为，不要为了过 Gatekeeper 去改签名流程，除非用户明确要求产品化。
 
 ## 硬约束
@@ -67,6 +67,10 @@
 │   │   │   ├── ScrollAcceleration.swift       # 速度加速曲线
 │   │   │   ├── ScrollTap.swift                # 滚轮 CGEventTap
 │   │   │   └── ScrollPoster.swift             # 合成像素滚轮事件
+│   │   ├── Monitor/
+│   │   │   ├── MonitorFeature.swift
+│   │   │   ├── MonitorFeature+Module.swift
+│   │   │   └── MonitorMetrics.swift
 │   │   └── Translation/
 │   │       ├── TranslationFeature.swift       # 面板状态、请求生命周期
 │   │       ├── TranslationFeature+Module.swift
@@ -82,6 +86,8 @@
 │   │   ├── NativeSidebarSplit.swift   # NSSplitViewController 原生侧栏
 │   │   ├── WindowActivator.swift      # 窗口出现时切 .regular，关闭后回 .accessory
 │   │   ├── MenuBarMenu.swift          # 菜单栏原生菜单
+│   │   ├── MonitorStatusItems.swift   # 两个双行 NSStatusItem
+│   │   ├── MonitorView.swift          # 系统监控页
 │   │   ├── PageComponents.swift       # 功能页共用卡片/分区
 │   │   ├── Theme.swift                # 设计令牌、卡片、键帽、徽章
 │   │   ├── TypeClipView.swift
@@ -103,13 +109,14 @@
 │   └── setup-dev-signing.sh # 创建并信任本机自签证书
 └── Docs/
     ├── RELEASE_NOTES-1.0.0.md
+    ├── RELEASE_NOTES-1.1.0.md
     ├── key-mapping-product-spec.md
     └── images/              # README 产品截图
 ```
 
 ## 架构
 
-- `Feature` 枚举定义四个功能页；`FeatureRegistry.modules` 是唯一模块清单。新增功能：
+- `Feature` 枚举定义五个功能页；`FeatureRegistry.modules` 是唯一模块清单。新增功能：
   1. 在 `Feature` 加 case 和标题/图标；
   2. 实现 `FeatureModule`（状态、热键、生命周期）；
   3. 注册到 `FeatureRegistry.modules`；
@@ -146,6 +153,14 @@
 - 合成事件带固定标记；tap 看到自己的事件必须放行，避免自激。
 - 平滑关闭时直接修改原事件字段并放行，不吞事件、零延迟。
 
+### 系统监控（Monitor）
+
+- 两个独立 `NSStatusItem`：网络（上行/下行）与 CPU/GPU；固定长度改成按当前两行文字自动收紧。
+- 网络统计 primary interface 的 64 位字节计数；CPU 用 `host_statistics(HOST_CPU_LOAD_INFO)`；GPU 读 IOAccelerator 的 `Device Utilization %`，回退 `Renderer Utilization %`。
+- CPU/GPU 显示值 80% 起黄色、100% 红色；数值四舍五入后再判阈值。
+- 菜单栏文字 9.5pt 常规字重、等宽数字、10pt 行距；宽度按最长一行计算，左右各留 2pt。
+- 不申请辅助功能权限；菜单栏空间不足时系统可能隐藏图标，这属于系统行为。
+
 ### 热键翻译
 
 - `⌥Space` 呼出面板；短文本/单词走向词典，长文本走翻译。分类逻辑在 `TranslationClassifier`。
@@ -176,7 +191,7 @@
 2. 更新 `Docs/RELEASE_NOTES-<版本>.md`（功能、安装、已知限制、SHA-256 占位）。
 3. 运行 `./build.sh test`，确认检查数。
 4. 运行 `./make-dmg.sh`，得到 `build/release/MacExpert-<版本>.dmg`，记录 SHA-256。
-5. 把 SHA-256 写回发布说明。
+5. 把 SHA-256 写回发布说明和 AGENTS.md。
 6. 从 `main` 建 release 分支，提交；`git fetch origin` 后 rebase `origin/main`。
 7. 推送分支，创建到 `main` 的 PR；合并必须走 PR，不直接推 `main`。
 8. 在合并提交上打 annotated tag `v<版本>`，推送 tag。
@@ -198,5 +213,5 @@
 
 - 产品说明：`README.md`
 - 键映射详细规格：`Docs/key-mapping-product-spec.md`
-- 当前版本发布说明：`Docs/RELEASE_NOTES-1.0.0.md`
+- 当前版本发布说明：`Docs/RELEASE_NOTES-1.1.0.md`
 - 签名脚本：`Scripts/setup-dev-signing.sh`
