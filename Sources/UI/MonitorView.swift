@@ -9,11 +9,9 @@ struct MonitorView: View {
         PageScaffold {
             statusCard
             menuBarCard
-            liveCard
             samplingCard
             privacyCard
         }
-        .onAppear { monitor.refreshNow() }
     }
 
     // MARK: - 状态
@@ -68,7 +66,7 @@ struct MonitorView: View {
 
                 SettingsRow(
                     "网络速率",
-                    detail: "两行显示，宽度随数值收紧"
+                    detail: "两行显示，宽度固定"
                 ) {
                     Toggle("", isOn: showNetworkBinding)
                         .labelsHidden()
@@ -86,193 +84,11 @@ struct MonitorView: View {
                         .accessibilityLabel("在菜单栏显示 CPU 与 GPU")
                 }
 
-                Divider()
-
-                HStack(alignment: .center, spacing: 14) {
-                    menuBarPreviewItem(
-                        width: MonitorStatusItems.width(for: [
-                            "↑ \(MonitorFormat.compactRate(monitor.uploadRate))",
-                            "↓ \(MonitorFormat.compactRate(monitor.downloadRate))"
-                        ]),
-                        top: MenuBarPreviewLine(
-                            prefix: "↑",
-                            value: MonitorFormat.compactRate(monitor.uploadRate),
-                            color: .primary
-                        ),
-                        bottom: MenuBarPreviewLine(
-                            prefix: "↓",
-                            value: MonitorFormat.compactRate(monitor.downloadRate),
-                            color: .primary
-                        ),
-                        visible: monitor.showNetwork
-                    )
-
-                    menuBarPreviewItem(
-                        width: MonitorStatusItems.width(for: [
-                            "C \(MonitorFormat.percent(monitor.cpuUsage))",
-                            "G \(MonitorFormat.percent(monitor.gpuUsage))"
-                        ]),
-                        top: MenuBarPreviewLine(
-                            prefix: "C",
-                            value: MonitorFormat.percent(monitor.cpuUsage),
-                            color: usageColor(monitor.cpuUsage)
-                        ),
-                        bottom: MenuBarPreviewLine(
-                            prefix: "G",
-                            value: MonitorFormat.percent(monitor.gpuUsage),
-                            color: usageColor(monitor.gpuUsage)
-                        ),
-                        visible: monitor.showCPU
-                    )
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("菜单栏预览")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text("自适应宽度 · 80% 起变色")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer(minLength: 0)
-                }
-                .opacity(monitor.enabled ? 1 : 0.45)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(menuBarPreviewAccessibility)
-            }
-        }
-    }
-
-    private struct MenuBarPreviewLine {
-        let prefix: String
-        let value: String
-        let color: Color
-    }
-
-    private func menuBarPreviewItem(
-        width: CGFloat,
-        top: MenuBarPreviewLine,
-        bottom: MenuBarPreviewLine,
-        visible: Bool
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            previewLine(top)
-            previewLine(bottom)
-        }
-        .padding(.horizontal, 2)
-        .frame(width: width, height: 26, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(Color.primary.opacity(0.07))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
-        )
-        .opacity(visible ? 1 : 0.35)
-        .help(visible ? "菜单栏中显示" : "菜单栏中已隐藏")
-    }
-
-    private func previewLine(_ line: MenuBarPreviewLine) -> some View {
-        HStack(spacing: 2) {
-            Text(line.prefix)
-                .foregroundStyle(line.color)
-            Text(line.value)
-                .foregroundStyle(.primary)
-        }
-        .font(.system(size: 9.5, weight: .regular).monospacedDigit())
-        .frame(height: 13, alignment: .leading)
-    }
-
-    private var menuBarPreviewAccessibility: String {
-        let upload = MonitorFormat.detailedRate(monitor.uploadRate)
-        let download = MonitorFormat.detailedRate(monitor.downloadRate)
-        let cpu = MonitorFormat.percent(monitor.cpuUsage)
-        let gpu = MonitorFormat.percent(monitor.gpuUsage)
-        return "菜单栏预览：上传 \(upload)，下载 \(download)；CPU \(cpu)，GPU \(gpu)"
-    }
-
-    // MARK: - 实时状态
-
-    private var liveCard: some View {
-        CardSurface {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
-                    Text("实时状态")
-                        .font(.headline)
-
-                    Spacer(minLength: 8)
-
-                    if let interface = monitor.primaryInterface {
-                        Badge(text: interface, color: Theme.accent)
-                    } else {
-                        Badge(text: "未连接", color: .secondary)
-                    }
-                }
-
-                HStack(spacing: 10) {
-                    metricTile(
-                        "上传",
-                        MonitorFormat.detailedRate(monitor.uploadRate),
-                        color: .orange
-                    )
-                    metricTile(
-                        "下载",
-                        MonitorFormat.detailedRate(monitor.downloadRate),
-                        color: .blue
-                    )
-                    metricTile(
-                        "CPU",
-                        MonitorFormat.percent(monitor.cpuUsage),
-                        color: usageColor(monitor.cpuUsage)
-                    )
-                    metricTile(
-                        "GPU",
-                        MonitorFormat.percent(monitor.gpuUsage),
-                        color: usageColor(monitor.gpuUsage)
-                    )
-                }
-
-                if !monitor.gpuSupported {
-                    Text("当前系统未提供 GPU 利用率。MacExpert 只读取 IOAccelerator 的利用率字段，不读取温度、功耗或频率。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Text("网络按系统 primary interface 统计，单位是字节/秒。")
+                Text("点击菜单栏图标查看实时速率、历史和 Top 进程。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
-    }
-
-    private func usageColor(_ value: Double?) -> Color {
-        switch MonitorFormat.usageLevel(value) {
-        case .normal:
-            return .primary
-        case .warning:
-            return .yellow
-        case .critical:
-            return .red
-        }
-    }
-
-    private func metricTile(_ title: String, _ value: String, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(color)
-            Text(value)
-                .font(.system(size: 17, weight: .semibold).monospacedDigit())
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.primary.opacity(0.045))
-        )
     }
 
     // MARK: - 采样
@@ -285,7 +101,7 @@ struct MonitorView: View {
 
                 SettingsRow(
                     "刷新间隔",
-                    detail: "菜单栏和本页共用这个频率"
+                    detail: "菜单栏图标和详情弹窗共用这个频率"
                 ) {
                     Picker("刷新间隔", selection: intervalBinding) {
                         Text("1 秒").tag(1.0)
@@ -309,7 +125,7 @@ struct MonitorView: View {
                 Label("隐私", systemImage: "lock.shield")
                     .font(.headline)
 
-                privacyLine("全部数据在本机采集，只保存在内存和当前页面。")
+                privacyLine("全部数据在本机采集，只保存在内存和菜单栏详情中。")
                 privacyLine("不记录网络内容，不发送任何网络请求。")
                 privacyLine("只读系统计数器和 GPU 利用率，不需要辅助功能权限，也不需要 root。")
             }
