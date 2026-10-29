@@ -311,6 +311,41 @@ private func testKeyMapping() {
         check(false, "无法构造 ⌃→ 测试事件")
     }
 
+    // 方向键 / F 键在真实事件里带 Function 位，系统的切桌面快捷键按它匹配。
+    let spaceLeft = KeyCombo(
+        keyCode: UInt16(kVK_LeftArrow),
+        keyLabel: "←",
+        modifiers: [.control]
+    )
+    check(spaceLeft.needsFunctionFlag, "⌃← 应补 Function 位")
+    checkEqual(
+        spaceLeft.keyEventFlags(base: [.maskControl, CGEventFlags(rawValue: 0x0001)]).rawValue,
+        UInt64(0x840001),
+        "⌃← 事件 flags 应为 Control + Function"
+    )
+    let spaceRight = KeyCombo(
+        keyCode: UInt16(kVK_RightArrow),
+        keyLabel: "→",
+        modifiers: [.control]
+    )
+    check(spaceRight.needsFunctionFlag, "⌃→ 应补 Function 位")
+    check(
+        KeyCombo(keyCode: UInt16(kVK_F5), keyLabel: "F5", modifiers: [.control]).needsFunctionFlag,
+        "F5 应补 Function 位"
+    )
+    check(
+        KeyCombo(keyCode: UInt16(kVK_PageUp), keyLabel: "⇞", modifiers: [.control]).needsFunctionFlag,
+        "Page Up 应补 Function 位"
+    )
+    check(!copy.needsFunctionFlag, "⌘C 不应补 Function 位")
+    checkEqual(
+        copy.keyEventFlags(base: [.maskCommand]).rawValue,
+        CGEventFlags.maskCommand.rawValue,
+        "普通字母键不应改 flags"
+    )
+    let plainReturn = KeyCombo(keyCode: UInt16(kVK_Return), keyLabel: "↩", modifiers: [])
+    check(!plainReturn.needsFunctionFlag, "回车不应补 Function 位")
+
     checkEqual(KeyLabel.label(for: UInt16(kVK_Return), characters: nil), "↩", "回车键帽")
     checkEqual(KeyLabel.label(for: UInt16(kVK_LeftArrow), characters: nil), "←", "左方向键帽")
     checkEqual(KeyLabel.label(for: UInt16(kVK_F5), characters: nil), "F5", "F5 键帽")

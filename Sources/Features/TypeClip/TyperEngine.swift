@@ -168,10 +168,6 @@ final class TyperEngine {
     /// 布局敲不出的字符(汉字/emoji)回退 Unicode 注入。返回预计总时长。
     @discardableResult
     func start(text: String, pressEnter: Bool, cfg: Config) -> TimeInterval {
-        // 兜底: 安全输入(密码框等)开启时系统会丢弃所有合成事件。
-        // 正常入口会在 TypeClipFeature 里先拦并提示, 这里防止其他调用路径静默失败。
-        if IsSecureEventInputEnabled() { return 0 }
-
         cancel()
         lastCfg = cfg
         let myRun = nextRunId()

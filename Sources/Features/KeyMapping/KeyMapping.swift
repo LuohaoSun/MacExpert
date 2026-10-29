@@ -86,6 +86,27 @@ struct KeyCombo: Codable, Hashable {
         KeyMappingNames.suggestion(for: self)
     }
 
+    /// 真实键盘事件里，方向键、翻页键和 F 键自带 Function 位；
+    /// 系统的 symbolic hotkey 也按这个位登记（⌃← / ⌃→ 的掩码是 0x840000）。
+    /// 漏掉它时，合成的 ⌃← / ⌃→ 只会被当成普通方向键，切不了桌面。
+    var needsFunctionFlag: Bool {
+        Self.functionKeyCodes.contains(Int(keyCode))
+    }
+
+    /// F1–F12 的键码不连续（F1 是 122、F12 是 111），不能用范围匹配。
+    private static let functionKeyCodes: Set<Int> = [
+        kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow,
+        kVK_Home, kVK_End, kVK_PageUp, kVK_PageDown,
+        kVK_ForwardDelete, kVK_Help,
+        kVK_F1, kVK_F2, kVK_F3, kVK_F4, kVK_F5, kVK_F6,
+        kVK_F7, kVK_F8, kVK_F9, kVK_F10, kVK_F11, kVK_F12,
+    ]
+
+    /// 字符事件的 flags：保留组合键修饰位，再按物理键补 Function 位。
+    func keyEventFlags(base: CGEventFlags) -> CGEventFlags {
+        needsFunctionFlag ? base.union(.maskSecondaryFn) : base
+    }
+
     static func from(event: NSEvent) -> KeyCombo {
         KeyCombo(
             keyCode: event.keyCode,
