@@ -167,24 +167,7 @@ struct SmoothScrollView: View {
                             .foregroundStyle(.secondary)
                             .frame(width: 56, alignment: .trailing)
                     }
-                }
-                .disabled(!scroll.smooth)
-                .opacity(scroll.smooth ? 1 : 0.45)
 
-                Divider()
-
-                SettingsRow(
-                    "快速滚动加速",
-                    detail: "最终距离 = 滚动倍率 × 加速倍率；滚得越快，加速倍率越高"
-                ) {
-                    Toggle("", isOn: accelerationEnabledBinding)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .accessibilityLabel("快速滚动加速")
-                        .disabled(!scroll.smooth)
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
                     SettingsRow(leading: "最高加速") {
                         Slider(value: accelerationMaxBinding, in: 1.5...10.0, step: 0.1)
                             .accessibilityLabel("最高加速")
@@ -193,32 +176,20 @@ struct SmoothScrollView: View {
                             .foregroundStyle(.secondary)
                             .frame(width: 56, alignment: .trailing)
                     }
-
-                    Text("慢速滚动保持 1×，连续快速滚动时逐步升到最高倍率；停手或换向后重新计算。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.leading, 90)
                 }
-                .disabled(!scroll.smooth || !scroll.accelerationEnabled)
-                .opacity(scroll.smooth && scroll.accelerationEnabled ? 1 : 0.45)
+                .disabled(!scroll.smooth)
+                .opacity(scroll.smooth ? 1 : 0.45)
 
                 Divider()
 
-                SettingsRow(
-                    "垂直方向反向",
-                    detail: "上下滚动反过来"
-                ) {
+                SettingsRow("垂直方向反向") {
                     Toggle("", isOn: reverseVerticalBinding)
                         .labelsHidden()
                         .toggleStyle(.switch)
                         .accessibilityLabel("垂直方向反向")
                 }
 
-                SettingsRow(
-                    "水平方向反向",
-                    detail: "左右滚动反过来"
-                ) {
+                SettingsRow("水平方向反向") {
                     Toggle("", isOn: reverseHorizontalBinding)
                         .labelsHidden()
                         .toggleStyle(.switch)
@@ -243,13 +214,6 @@ struct SmoothScrollView: View {
         Binding(
             get: { scroll.gain },
             set: { scroll.gain = (($0 * 10).rounded() / 10) }
-        )
-    }
-
-    private var accelerationEnabledBinding: Binding<Bool> {
-        Binding(
-            get: { scroll.accelerationEnabled },
-            set: { scroll.accelerationEnabled = $0 }
         )
     }
 

@@ -7,11 +7,11 @@ import AppKit
 @MainActor
 final class MonitorStatusItems: NSObject {
 
-    static let networkWidth: CGFloat = 68
-    static let cpuWidth: CGFloat = 56
+    static let networkWidth: CGFloat = 50
+    static let cpuWidth: CGFloat = 42
 
-    private let networkView = MonitorTwoLineStatusView(leadingInset: 8)
-    private let cpuView = MonitorTwoLineStatusView(leadingInset: 7)
+    private let networkView = MonitorTwoLineStatusView(leadingInset: 2)
+    private let cpuView = MonitorTwoLineStatusView(leadingInset: 2)
     private let onSelect: () -> Void
 
     private var networkItem: NSStatusItem?
