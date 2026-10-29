@@ -211,7 +211,7 @@ final class MonitorTwoLineStatusView: NSView {
     }
 
     private func makeLine(prefix: String, value: String, color: NSColor) -> NSAttributedString {
-        let font = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .semibold)
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .medium)
         let text = NSMutableAttributedString(
             string: prefix,
             attributes: [.font: font, .foregroundColor: color]
@@ -227,7 +227,7 @@ final class MonitorTwoLineStatusView: NSView {
 
     private static func makeLabel() -> NSTextField {
         let label = NSTextField(labelWithString: "")
-        label.font = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .semibold)
+        label.font = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .medium)
         label.textColor = .labelColor
         label.alignment = .left
         label.maximumNumberOfLines = 1
