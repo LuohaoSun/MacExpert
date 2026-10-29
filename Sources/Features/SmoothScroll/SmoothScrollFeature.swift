@@ -137,6 +137,8 @@ final class SmoothScrollFeature: ObservableObject {
     func start() {
         guard !installed else { return }
         installed = true
+        // 加速已经并入滚动效果，不再提供关闭开关；旧版本遗留的 false 直接迁移为开启。
+        accelerationEnabled = true
 
         tap.handler = { [weak self] sample, event in
             guard let self else { return .passThrough }
@@ -376,6 +378,7 @@ extension SmoothScrollFeature {
         isPreview = true
         enabled = true
         smooth = true
+        accelerationEnabled = true
         reverseVertical = true
         tapState = .running
         lastInput = LastInput(

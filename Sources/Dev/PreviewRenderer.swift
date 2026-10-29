@@ -24,6 +24,7 @@ enum PreviewRenderer {
         AppState.shared.trusted = true
         KeyMappingFeature.shared.applyPreviewData()
         SmoothScrollFeature.shared.applyPreviewData()
+        MonitorFeature.shared.applyPreviewData()
 
         // 1. 主窗口各页：跟着 Feature.allCases 走，新增功能会自动多一张截图。
         let firstWindowNumber = 3

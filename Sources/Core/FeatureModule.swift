@@ -31,6 +31,7 @@ enum FeatureRegistry {
         KeyMappingFeature.shared,
         SmoothScrollFeature.shared,
         TranslationFeature.shared,
+        MonitorFeature.shared,
     ]
 
     static func module(for feature: Feature) -> FeatureModule? {

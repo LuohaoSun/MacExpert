@@ -134,7 +134,7 @@ private func testDerivedParameters() {
 private func testFeatureRegistry() {
     checkEqual(
         Feature.allCases,
-        [.typeClip, .keyMapping, .smoothScroll, .translate],
+        [.typeClip, .keyMapping, .smoothScroll, .translate, .monitor],
         "Feature.allCases 顺序与内容"
     )
 
@@ -142,6 +142,7 @@ private func testFeatureRegistry() {
     check(Feature.keyMapping.isAvailable, "鼠标按键映射已注册模块，应可用")
     check(Feature.smoothScroll.isAvailable, "平滑滚动已注册模块，应可用")
     check(Feature.translate.isAvailable, "热键翻译已注册模块，应可用")
+    check(Feature.monitor.isAvailable, "系统监控已注册模块，应可用")
 
     for feature in Feature.allCases {
         check(!feature.title.isEmpty, "\(feature.rawValue) 的标题不应为空")
@@ -156,6 +157,9 @@ private func testFeatureRegistry() {
     checkEqual(Feature.smoothScroll.subtitle, "鼠标滚轮 · 平滑与反向", "平滑滚动副标题")
     checkEqual(Feature.smoothScroll.icon, "scroll", "平滑滚动图标")
     checkEqual(Feature.translate.title, "热键翻译", "热键翻译标题")
+    checkEqual(Feature.monitor.title, "系统监控", "系统监控标题")
+    checkEqual(Feature.monitor.subtitle, "菜单栏网速 · CPU / GPU", "系统监控副标题")
+    checkEqual(Feature.monitor.icon, "speedometer", "系统监控图标")
 
     let typeClip = MainSection.feature(.typeClip)
     checkEqual(typeClip.id, "typeClip", "MainSection id 应使用 feature.rawValue")
@@ -176,6 +180,11 @@ private func testFeatureRegistry() {
     let translate = MainSection.feature(.translate)
     check(translate.badge == nil, "热键翻译已注册，不应显示「规划中」")
     check(translate.isAvailable, "热键翻译的 MainSection 应可用")
+
+    let monitor = MainSection.feature(.monitor)
+    check(monitor.badge == nil, "系统监控已注册，不应显示「规划中」")
+    check(monitor.isAvailable, "系统监控的 MainSection 应可用")
+    checkEqual(monitor.id, "monitor", "系统监控 MainSection id")
 
     let settings = MainSection.settings
     checkEqual(settings.id, "settings", "设置页 id")
@@ -1125,6 +1134,242 @@ private func testTranslationSecretStore() {
     checkEqual(store.load(), "", "删除后读取应为空")
 }
 
+// MARK: - 系统监控
+
+private func testMonitorFormatting() {
+    checkEqual(MonitorFormat.compactRate(0), "0B", "0 B/s 的紧凑格式")
+    checkEqual(MonitorFormat.compactRate(512), "512B", "小于 1K 显示 B")
+    checkEqual(MonitorFormat.compactRate(999), "999B", "999 B 仍显示 B")
+    checkEqual(MonitorFormat.compactRate(1000), "1.0K", "1000 B 进入 K")
+    checkEqual(MonitorFormat.compactRate(1_240), "1.2K", "1.2K")
+    checkEqual(MonitorFormat.compactRate(12_400), "12.4K", "12.4K")
+    checkEqual(MonitorFormat.compactRate(124_000), "124K", "100K 以上不带小数")
+    checkEqual(MonitorFormat.compactRate(1_200_000), "1.2M", "1.2M")
+    checkEqual(MonitorFormat.compactRate(3_400_000_000), "3.4G", "3.4G")
+    checkEqual(MonitorFormat.compactRate(-1), "0B", "负数按 0 处理")
+    checkEqual(MonitorFormat.compactRate(.nan), "0B", "NaN 按 0 处理")
+    checkEqual(MonitorFormat.compactRate(.infinity), "0B", "无穷大按 0 处理")
+
+    checkEqual(MonitorFormat.detailedRate(0), "0 B/s", "详细格式 0")
+    checkEqual(MonitorFormat.detailedRate(512), "512 B/s", "详细格式 B/s")
+    checkEqual(MonitorFormat.detailedRate(1_200_000), "1.2 MB/s", "详细格式 MB/s")
+    checkEqual(MonitorFormat.detailedRate(3_400_000_000), "3.4 GB/s", "详细格式 GB/s")
+
+    checkEqual(MonitorFormat.percent(nil), "--", "缺失百分比显示 --")
+    checkEqual(MonitorFormat.percent(0), "0%", "0%")
+    checkEqual(MonitorFormat.percent(23.4), "23%", "四舍五入到 23%")
+    checkEqual(MonitorFormat.percent(23.6), "24%", "四舍五入到 24%")
+    checkEqual(MonitorFormat.percent(140), "100%", "百分比上限 100")
+    checkEqual(MonitorFormat.percent(-3), "0%", "百分比下限 0")
+
+    checkEqual(MonitorFormat.usageLevel(nil), .normal, "无数据不着色")
+    checkEqual(MonitorFormat.usageLevel(79.4), .normal, "79% 保持常规颜色")
+    checkEqual(MonitorFormat.usageLevel(79.5), .warning, "四舍五入到 80% 时变黄")
+    checkEqual(MonitorFormat.usageLevel(80), .warning, "80% 变黄")
+    checkEqual(MonitorFormat.usageLevel(99.4), .warning, "99% 仍为黄色")
+    checkEqual(MonitorFormat.usageLevel(99.5), .critical, "四舍五入到 100% 时变红")
+    checkEqual(MonitorFormat.usageLevel(100), .critical, "100% 变红")
+    checkEqual(MonitorFormat.usageLevel(140), .critical, "超过 100% 仍为红色")
+}
+
+private func testMonitorNetworkRate() {
+    let first = NetworkCounters(interface: "en0", received: 1_000, sent: 400)
+
+    check(
+        NetworkRateMath.rate(previous: nil, previousTime: nil, current: first, currentTime: 10) == nil,
+        "首样本没有基线，应返回 nil"
+    )
+
+    let second = NetworkCounters(interface: "en0", received: 3_000, sent: 1_400)
+    if let rate = NetworkRateMath.rate(
+        previous: first,
+        previousTime: 10,
+        current: second,
+        currentTime: 12
+    ) {
+        checkClose(rate.download, 1_000, "下载速率 = 字节差 / 时间")
+        checkClose(rate.upload, 500, "上传速率 = 字节差 / 时间")
+    } else {
+        check(false, "正常差值应算出速率")
+    }
+
+    check(
+        NetworkRateMath.rate(
+            previous: second,
+            previousTime: 12,
+            current: second,
+            currentTime: 12
+        ) == nil,
+        "零时间差应返回 nil"
+    )
+
+    let reset = NetworkCounters(interface: "en0", received: 200, sent: 100)
+    check(
+        NetworkRateMath.rate(
+            previous: second,
+            previousTime: 12,
+            current: reset,
+            currentTime: 13
+        ) == nil,
+        "计数回退应视为重置，不产生负速率"
+    )
+
+    let switched = NetworkCounters(interface: "en1", received: 9_000, sent: 9_000)
+    check(
+        NetworkRateMath.rate(
+            previous: second,
+            previousTime: 12,
+            current: switched,
+            currentTime: 13
+        ) == nil,
+        "接口切换应重置基线"
+    )
+
+    if let idle = NetworkRateMath.rate(
+        previous: second,
+        previousTime: 12,
+        current: second,
+        currentTime: 13
+    ) {
+        checkClose(idle.download, 0, "计数不变时下载速率为 0")
+        checkClose(idle.upload, 0, "计数不变时上传速率为 0")
+    } else {
+        check(false, "计数不变也应给出 0 速率")
+    }
+
+    check(
+        NetworkRateMath.rate(
+            previous: first,
+            previousTime: 10,
+            current: second,
+            currentTime: 10.0001
+        ) != nil,
+        "很小的正时间差仍应算出速率"
+    )
+}
+
+private func testMonitorCPUUsage() {
+    let base = CPUCounters(user: 100, system: 50, idle: 850, nice: 0)
+    check(CPUMath.utilization(previous: nil, current: base) == nil, "首次 CPU 采样应返回 nil")
+
+    let next = CPUCounters(user: 130, system: 60, idle: 900, nice: 10)
+    if let usage = CPUMath.utilization(previous: base, current: next) {
+        checkClose(usage, 50, "busy/total 应为 50%")
+    } else {
+        check(false, "正常 CPU 差值应得到占用率")
+    }
+
+    let idleOnly = CPUCounters(user: 100, system: 50, idle: 950, nice: 0)
+    checkClose(
+        CPUMath.utilization(previous: base, current: idleOnly) ?? -1,
+        0,
+        "只增加 idle 时占用率为 0"
+    )
+
+    let busyOnly = CPUCounters(user: 200, system: 50, idle: 850, nice: 0)
+    checkClose(
+        CPUMath.utilization(previous: base, current: busyOnly) ?? -1,
+        100,
+        "只增加 busy 时占用率为 100"
+    )
+
+    check(CPUMath.utilization(previous: base, current: base) == nil, "tick 没有变化时应返回 nil")
+
+    let wrapPrevious = CPUCounters(
+        user: UInt32.max - 5,
+        system: 0,
+        idle: UInt32.max - 3,
+        nice: 0
+    )
+    let wrapCurrent = CPUCounters(user: 10, system: 0, idle: 1, nice: 0)
+    if let usage = CPUMath.utilization(previous: wrapPrevious, current: wrapCurrent) {
+        checkClose(usage, 16.0 / 21.0 * 100, "32 位 tick 回绕应按无符号差值计算")
+    } else {
+        check(false, "tick 回绕应仍能算出占用率")
+    }
+}
+
+private func testMonitorGPUUsage() {
+    checkEqual(
+        GPUUtilization.utilization(from: ["Device Utilization %": 45]),
+        45 as Double?,
+        "优先读取 Device Utilization %"
+    )
+
+    checkEqual(
+        GPUUtilization.utilization(from: ["Renderer Utilization %": 30]),
+        30 as Double?,
+        "Device 缺失时回退 Renderer Utilization %"
+    )
+
+    checkEqual(
+        GPUUtilization.utilization(from: [
+            "Device Utilization %": 12,
+            "Renderer Utilization %": 80,
+        ]),
+        12 as Double?,
+        "两者都存在时优先 Device"
+    )
+
+    if let value = GPUUtilization.utilization(
+        from: ["Device Utilization %": NSNumber(value: 45.5)]
+    ) {
+        checkClose(value, 45.5, "支持 NSNumber")
+    } else {
+        check(false, "NSNumber 应能读取")
+    }
+
+    checkEqual(
+        GPUUtilization.utilization(from: ["Device Utilization %": 140]),
+        100 as Double?,
+        "GPU 利用率上限 clamp 到 100"
+    )
+    checkEqual(
+        GPUUtilization.utilization(from: ["Renderer Utilization %": -5]),
+        0 as Double?,
+        "GPU 利用率下限 clamp 到 0"
+    )
+    check(GPUUtilization.utilization(from: [:]) == nil, "字段缺失时返回 nil")
+    check(
+        GPUUtilization.utilization(from: ["Device Utilization %": "45"]) == nil,
+        "非数字字段返回 nil"
+    )
+}
+
+private func testMonitorStore() {
+    let suite = "MacExpert-Monitor-\(UUID().uuidString)"
+    guard let defaults = UserDefaults(suiteName: suite) else {
+        check(false, "无法创建监控测试 UserDefaults suite")
+        return
+    }
+    defaults.removePersistentDomain(forName: suite)
+    defer { defaults.removePersistentDomain(forName: suite) }
+
+    let store = MonitorStore(defaults: defaults)
+    check(store.isEnabled, "系统监控默认启用")
+    check(store.showNetwork, "网络 item 默认可见")
+    check(store.showCPU, "CPU/GPU item 默认可见")
+    checkEqual(store.refreshInterval, 1, "刷新间隔默认 1 秒")
+
+    store.setEnabled(false)
+    store.setShowNetwork(false)
+    store.setShowCPU(false)
+    store.setRefreshInterval(5)
+
+    let reloaded = MonitorStore(defaults: defaults)
+    check(!reloaded.isEnabled, "总开关应落 UserDefaults")
+    check(!reloaded.showNetwork, "网络可见性应落 UserDefaults")
+    check(!reloaded.showCPU, "CPU/GPU 可见性应落 UserDefaults")
+    checkEqual(reloaded.refreshInterval, 5, "刷新间隔应落 UserDefaults")
+
+    checkEqual(MonitorStore.clampInterval(0), 1, "过小的间隔夹到 1")
+    checkEqual(MonitorStore.clampInterval(3), 2, "3 秒夹到最近的 2 秒")
+    checkEqual(MonitorStore.clampInterval(4), 5, "4 秒夹到最近的 5 秒")
+    checkEqual(MonitorStore.clampInterval(99), 5, "过大的间隔夹到 5")
+    store.setRefreshInterval(3)
+    checkEqual(MonitorStore(defaults: defaults).refreshInterval, 2, "写入时也应夹取")
+}
+
 // MARK: - 版本比较
 
 private func testAppVersion() {
@@ -1159,6 +1404,11 @@ struct UnitTests {
         testTranslationEndpoint()
         testTranslationStore()
         testTranslationSecretStore()
+        testMonitorFormatting()
+        testMonitorNetworkRate()
+        testMonitorCPUUsage()
+        testMonitorGPUUsage()
+        testMonitorStore()
         testAppVersion()
 
         if failures == 0 {
