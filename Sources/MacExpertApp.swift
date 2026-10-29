@@ -185,6 +185,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return true
         }
 
+        if args.contains("--show-monitor-popover") || args.contains("--show-monitor-popover-network") {
+            let kind: MonitorStatusKind =
+                args.contains("--show-monitor-popover-network") ? .network : .processor
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                MainActor.assumeIsolated {
+                    if !MonitorFeature.shared.enabled {
+                        MonitorFeature.shared.enabled = true
+                    }
+                    MonitorFeature.shared.showPopoverForTesting(kind: kind)
+                }
+            }
+        }
+
         return false
     }
 

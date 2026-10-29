@@ -238,6 +238,27 @@ enum PreviewRenderer {
         )
         translation.mode = .auto
 
+        // 菜单栏详情弹窗：处理器和网络分开，检查 Top 进程与历史曲线排版。
+        let popoverNumber = panelNumber + 4
+        for (kindName, kind) in [("processor", MonitorStatusKind.processor), ("network", MonitorStatusKind.network)] {
+            for (suffix, scheme) in [("light", ColorScheme.light), ("dark", ColorScheme.dark)] {
+                render(
+                    MonitorPopoverView(
+                        monitor: MonitorFeature.shared,
+                        detail: MonitorFeature.shared.detail,
+                        kind: kind,
+                        onOpenMonitor: {}
+                    ),
+                    width: 340,
+                    height: MonitorPopoverView.contentHeight(for: kind),
+                    scheme: scheme,
+                    to: url.appendingPathComponent(
+                        String(format: "%02d-monitor-%@-%@.png", popoverNumber, kindName, suffix)
+                    )
+                )
+            }
+        }
+
         print("preview written to \(directory)")
         fflush(stdout)
     }

@@ -60,6 +60,33 @@ struct MonitorStore {
     }
 }
 
+// MARK: - 详情状态
+
+/// 菜单栏详情专用的高频状态。单独成对象，避免每秒写历史、每核占用和
+/// Top 进程时，让只观察主状态的菜单栏和主窗口跟着重算。
+final class MonitorDetailModel: ObservableObject {
+
+    @Published var coreUsages: [Double] = []
+    @Published var history = MonitorHistory()
+    @Published var topCPUProcesses: [CPUProcessUsage] = []
+    @Published var topNetworkProcesses: [NetworkProcessUsage] = []
+    @Published var networkProcessesReady = false
+    @Published var networkProcessesSupported = true
+
+    func resetProcesses() {
+        topCPUProcesses = []
+        topNetworkProcesses = []
+        networkProcessesReady = false
+        networkProcessesSupported = true
+    }
+
+    func reset() {
+        coreUsages = []
+        history.clear()
+        resetProcesses()
+    }
+}
+
 // MARK: - 系统监控功能
 
 /// 菜单栏的 CPU / 网络 / GPU 监控。
@@ -68,15 +95,22 @@ final class MonitorFeature: ObservableObject {
 
     static let shared = MonitorFeature()
 
+    let detail = MonitorDetailModel()
+
     private let store: MonitorStore
     private let gpuSampler = GPUSampler()
 
     private var cpuSampler = CPUSampler()
+    private var coreSampler = CPUCoreSampler()
+    private var cpuProcessSampler = CPUProcessSampler()
+    private let networkProcessSampler = NetworkProcessSampler()
     private var previousNetwork: NetworkCounters?
     private var previousNetworkTime: TimeInterval?
     private var timer: Timer?
     private var wakeObserver: NSObjectProtocol?
     private var statusItems: MonitorStatusItems?
+    private var popoverController: MonitorPopoverController?
+    private var detailKind: MonitorStatusKind?
     private var installed = false
     private var isPreview = false
 
@@ -181,6 +215,39 @@ final class MonitorFeature: ObservableObject {
         sampleNow()
     }
 
+    /// 打开某个菜单栏详情。Top 进程只在详情打开期间采样。
+    func beginDetail(_ kind: MonitorStatusKind) {
+        MainActor.assumeIsolated {
+            endDetail()
+            detailKind = kind
+            switch kind {
+            case .processor:
+                cpuProcessSampler.reset()
+                detail.topCPUProcesses = []
+                refreshNow()
+            case .network:
+                detail.topNetworkProcesses = []
+                detail.networkProcessesReady = false
+                detail.networkProcessesSupported = NetworkProcessSampler.isSupported
+                guard detail.networkProcessesSupported else { return }
+                networkProcessSampler.start { [weak self] rows in
+                    guard let self else { return }
+                    self.detail.topNetworkProcesses = rows
+                    self.detail.networkProcessesReady = true
+                }
+            }
+        }
+    }
+
+    func endDetail() {
+        MainActor.assumeIsolated {
+            detailKind = nil
+            detail.resetProcesses()
+            networkProcessSampler.stop()
+            cpuProcessSampler.reset()
+        }
+    }
+
     // MARK: - 采样
 
     func sampleNow() {
@@ -190,6 +257,10 @@ final class MonitorFeature: ObservableObject {
 
         if let value = cpuSampler.sample() {
             cpuUsage = value
+        }
+
+        if let cores = coreSampler.sample() {
+            detail.coreUsages = cores
         }
 
         if let counters = NetworkReader.readPrimary() {
@@ -224,6 +295,17 @@ final class MonitorFeature: ObservableObject {
             gpuSupported = false
         }
 
+        detail.history.append(
+            cpu: cpuUsage,
+            gpu: gpuUsage,
+            download: downloadRate,
+            upload: uploadRate
+        )
+
+        if detailKind == .processor, let rows = cpuProcessSampler.sample(now: now) {
+            detail.topCPUProcesses = rows
+        }
+
         lastSample = Date()
         updateStatusItems()
     }
@@ -232,9 +314,12 @@ final class MonitorFeature: ObservableObject {
         guard enabled, installed, !isPreview, !RuntimeFlags.isRenderingPreview else { return }
 
         cpuSampler.reset()
+        coreSampler.reset()
         previousNetwork = nil
         previousNetworkTime = nil
         cpuUsage = nil
+        detail.coreUsages = []
+        detail.history.clear()
         downloadRate = 0
         uploadRate = 0
         gpuUsage = nil
@@ -243,12 +328,17 @@ final class MonitorFeature: ObservableObject {
 
     private func resetReadings() {
         cpuSampler.reset()
+        coreSampler.reset()
+        cpuProcessSampler.reset()
+        networkProcessSampler.stop()
+        detailKind = nil
         previousNetwork = nil
         previousNetworkTime = nil
         downloadRate = 0
         uploadRate = 0
         cpuUsage = nil
         gpuUsage = nil
+        detail.reset()
         primaryInterface = nil
         gpuSupported = true
         lastSample = nil
@@ -280,6 +370,9 @@ final class MonitorFeature: ObservableObject {
 
         let shouldShow = enabled && (showNetwork || showCPU)
         guard shouldShow else {
+            MainActor.assumeIsolated {
+                popoverController?.close()
+            }
             removeStatusItems()
             return
         }
@@ -289,8 +382,8 @@ final class MonitorFeature: ObservableObject {
             if let statusItems {
                 manager = statusItems
             } else {
-                let created = MonitorStatusItems { [weak self] in
-                    self?.openMonitorPage()
+                let created = MonitorStatusItems { [weak self] kind, button in
+                    self?.togglePopover(relativeTo: button, kind: kind)
                 }
                 statusItems = created
                 manager = created
@@ -325,13 +418,26 @@ final class MonitorFeature: ObservableObject {
     private func removeStatusItems() {
         guard let statusItems else { return }
         MainActor.assumeIsolated {
+            popoverController?.close()
             statusItems.removeAll()
         }
         self.statusItems = nil
     }
 
+    private func togglePopover(relativeTo button: NSStatusBarButton, kind: MonitorStatusKind) {
+        MainActor.assumeIsolated {
+            if popoverController == nil {
+                popoverController = MonitorPopoverController { [weak self] in
+                    self?.openMonitorPage()
+                }
+            }
+            popoverController?.toggle(relativeTo: button, kind: kind)
+        }
+    }
+
     private func openMonitorPage() {
         MainActor.assumeIsolated {
+            popoverController?.close()
             AppState.shared.open(.feature(.monitor))
             MainWindowController.shared.show()
         }
@@ -354,9 +460,43 @@ extension MonitorFeature {
         downloadRate = 3_400_000
         cpuUsage = 23
         gpuUsage = 45
+        detail.coreUsages = [18, 24, 30, 12, 8, 45, 50, 20]
+        detail.history.clear()
+        for index in 0..<MonitorHistory.capacity {
+            let phase = Double(index) / Double(MonitorHistory.capacity) * .pi * 2
+            detail.history.append(
+                cpu: 28 + sin(phase) * 18,
+                gpu: 45 + cos(phase) * 12,
+                download: 3_400_000 + sin(phase * 2) * 900_000,
+                upload: 1_240_000 + cos(phase * 2) * 300_000
+            )
+        }
         gpuSupported = true
         primaryInterface = "en0"
         lastSample = Date()
+        detail.topCPUProcesses = [
+            CPUProcessUsage(pid: 1445, name: "ZCode", percent: 28),
+            CPUProcessUsage(pid: 979, name: "WeChat", percent: 12),
+            CPUProcessUsage(pid: 969, name: "企业微信", percent: 8),
+            CPUProcessUsage(pid: 2250, name: "verge-mihomo", percent: 5),
+            CPUProcessUsage(pid: 514, name: "mDNSResponder", percent: 2),
+        ]
+        detail.topNetworkProcesses = [
+            NetworkProcessUsage(pid: 2250, name: "verge-mihomo", download: 2_400_000, upload: 320_000),
+            NetworkProcessUsage(pid: 1445, name: "ZCode", download: 180_000, upload: 24_000),
+            NetworkProcessUsage(pid: 969, name: "企业微信", download: 96_000, upload: 8_000),
+            NetworkProcessUsage(pid: 979, name: "WeChat", download: 42_000, upload: 12_000),
+            NetworkProcessUsage(pid: 514, name: "mDNSResponder", download: 8_000, upload: 2_000),
+        ]
+        detail.networkProcessesReady = true
+        detail.networkProcessesSupported = true
+    }
+
+    /// 仅开发验证：不合成鼠标事件，直接展示真实 NSPopover。
+    @MainActor
+    func showPopoverForTesting(kind: MonitorStatusKind = .processor) {
+        guard let button = statusItems?.buttonForPreview else { return }
+        togglePopover(relativeTo: button, kind: kind)
     }
 }
 #endif

@@ -7,7 +7,7 @@
 - 当前版本：`1.1.0`（build `6`），发布标签 `v1.1.0`。
 - 发布资产：`MacExpert-1.1.0.dmg`，SHA-256 `68fb6b36893e506764386995061108ecc13d9c8b5583e1bc2c16c5062f3fabee`。
 - 本机安装位置：`/Applications/MacExpert.app`。
-- 单元测试：`./build.sh test`，当前 **429 项检查**。
+- 单元测试：`./build.sh test`，当前 **458 项检查**。
 - 发布包是自签、未公证的；`spctl` 拒绝是预期行为，不要为了过 Gatekeeper 去改签名流程，除非用户明确要求产品化。
 
 ## 硬约束
@@ -68,9 +68,10 @@
 │   │   │   ├── ScrollTap.swift                # 滚轮 CGEventTap
 │   │   │   └── ScrollPoster.swift             # 合成像素滚轮事件
 │   │   ├── Monitor/
-│   │   │   ├── MonitorFeature.swift
+│   │   │   ├── MonitorFeature.swift      # 主状态、采样调度、菜单栏
 │   │   │   ├── MonitorFeature+Module.swift
-│   │   │   └── MonitorMetrics.swift
+│   │   │   ├── MonitorMetrics.swift      # CPU/GPU/网络读数、每核、历史
+│   │   │   └── MonitorProcesses.swift    # CPU/网络 Top 进程采样
 │   │   └── Translation/
 │   │       ├── TranslationFeature.swift       # 面板状态、请求生命周期
 │   │       ├── TranslationFeature+Module.swift
@@ -87,7 +88,8 @@
 │   │   ├── WindowActivator.swift      # 窗口出现时切 .regular，关闭后回 .accessory
 │   │   ├── MenuBarMenu.swift          # 菜单栏原生菜单
 │   │   ├── MonitorStatusItems.swift   # 两个双行 NSStatusItem
-│   │   ├── MonitorView.swift          # 系统监控页
+│   │   ├── MonitorPopover.swift       # 处理器/网络详情弹窗
+│   │   ├── MonitorView.swift          # 系统监控设置页（不含实时数据）
 │   │   ├── PageComponents.swift       # 功能页共用卡片/分区
 │   │   ├── Theme.swift                # 设计令牌、卡片、键帽、徽章
 │   │   ├── TypeClipView.swift
@@ -155,10 +157,16 @@
 
 ### 系统监控（Monitor）
 
-- 两个独立 `NSStatusItem`：网络（上行/下行）与 CPU/GPU；固定长度改成按当前两行文字自动收紧。
+- 两个独立 `NSStatusItem`：网络（上行/下行）与 CPU/GPU；宽度固定，不随数值变化，避免推动左侧菜单栏图标。
 - 网络统计 primary interface 的 64 位字节计数；CPU 用 `host_statistics(HOST_CPU_LOAD_INFO)`；GPU 读 IOAccelerator 的 `Device Utilization %`，回退 `Renderer Utilization %`。
 - CPU/GPU 显示值 80% 起黄色、100% 红色；数值四舍五入后再判阈值。
-- 菜单栏文字 9.5pt 常规字重、等宽数字、10pt 行距；宽度按最长一行计算，左右各留 2pt。
+- 菜单栏文字 9.5pt 常规字重、等宽数字、10pt 行距；宽度按最长可能文本固定预留（约 42pt），左右各留 2pt；视图直接绘制，不要用 `NSTextField` 子视图。网络紧凑格式最多 4 个字符（10 以上不带小数，`12.4K` 显示为 `12K`），任何超长结果降级为 `--`，避免固定宽度下整段数值被裁掉只剩箭头。
+- 点击网络图标只弹网络详情，点击 CPU/GPU 图标只弹处理器详情。处理器页包含 CPU/GPU、每核占用、60 次历史、Top CPU 进程；网络页包含实时速率、60 次历史、Top 网络进程。
+- 主窗口的「系统监控」页只放设置：总开关、两个菜单栏项目开关、刷新间隔、隐私说明。不要再加实时数字、菜单栏数值预览或实时状态卡片；实时数据和 Top 进程只在菜单栏弹窗里看。
+- 详情页高频状态放在 `MonitorDetailModel`，不要塞回 `MonitorFeature` 的 `@Published`。菜单栏和主窗口只观察 `MonitorFeature`，历史/每核/Top 进程每秒变化不应触发它们重算。
+- 每核 CPU 用 `host_processor_info(PROCESSOR_CPU_LOAD_INFO)`；Top CPU 进程只在处理器详情打开时采样。先对所有 PID 算 CPU 时间差，排序后只解析前 5 个进程名，避免每秒对所有进程调用 `proc_pidpath`。
+- Top 网络进程用 `NetworkStatistics.framework` 的 `NStatManager*` 接口（`dlopen` + `dlsym`）读取每个连接的累计字节；每秒对 source 调用一次 `NStatSourceQueryCounts`，按 PID 合并增量。不要改回 `nettop -L`：日志模式会持续占满 1 个以上核心，管道输出还会被大缓冲拖住。
+- `NetworkProcessSampler` 只在网络详情打开时创建 manager，关闭即销毁；框架或符号缺失时显示“当前系统无法读取进程流量”，不要影响其他监控功能。
 - 不申请辅助功能权限；菜单栏空间不足时系统可能隐藏图标，这属于系统行为。
 
 ### 热键翻译
@@ -180,8 +188,9 @@
 ```
 
 - `build.sh` 会用 `find Sources -name '*.swift'` 收集源码；新增源文件不需要改工程文件，但必须能通过当前 Swift 5 编译。
-- 开发构建的额外入口：`--preview <dir>`（离屏渲染各页 PNG）、`--selfcheck`、`--notify-drive`、`--open-window`。
-- `--preview` 是截取 UI 的首选方式：不激活 app、不抢焦点、不读真实 Key。主窗口按 880×720 渲染，翻译面板 600×480。
+- 开发构建的额外入口：`--preview <dir>`（离屏渲染各页 PNG）、`--selfcheck`、`--notify-drive`、`--open-window`、`--show-monitor-popover`、`--show-monitor-popover-network`。
+- `--show-monitor-popover*` 会直接展示真实 `NSPopover`（不合成鼠标事件）；弹窗跟随 status item 所在屏幕，可能落在副屏。
+- `--preview` 是截取 UI 的首选方式：不激活 app、不抢焦点、不读真实 Key。主窗口按 880×720 渲染，翻译面板 600×480；处理器详情 340×540，网络详情 340×430，输出文件是 `18-monitor-*`。
 - `Tests/smoke.sh` 会占用剪贴板和焦点，只在确实需要验证端到端敲入时运行；不要为了“确认一下”反复跑。
 - 改 UI 后如需更新 README 截图，用 `--preview build/preview-readme` 渲染，挑四张实际页面图覆盖 `Docs/images/`，不要在 README 里放示意图。
 

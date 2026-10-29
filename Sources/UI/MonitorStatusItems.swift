@@ -2,13 +2,22 @@ import AppKit
 
 // MARK: - 两个菜单栏项目
 
+/// 点击的是哪一个菜单栏项目，决定详情弹窗显示处理器还是网络。
+enum MonitorStatusKind: Equatable {
+    case processor
+    case network
+}
+
 /// 网络与 CPU/GPU 两个独立的 `NSStatusItem`。
 /// 每个 item 内部是固定宽度的双行视图，数值变化不会推动菜单栏其他项目。
 @MainActor
 final class MonitorStatusItems: NSObject {
 
-    static let networkWidth: CGFloat = 43
-    static let cpuWidth: CGFloat = 40
+    /// 菜单栏项目宽度固定。内容收紧会让 item 反复变宽变窄，
+    /// 把左侧所有菜单栏图标一起推来推去；这里按最长可能文本预留，
+    /// 只多留 100% / 999M 这类边界值需要的空间。
+    static let networkWidth = width(for: ["↑ 999M", "↓ 999M"])
+    static let cpuWidth = width(for: ["C 100%", "G 100%"])
 
     /// item 左右各留 2pt；宽度按两行里较长的一行计算。
     static func width(for lines: [String]) -> CGFloat {
@@ -21,12 +30,14 @@ final class MonitorStatusItems: NSObject {
 
     private let networkView = MonitorTwoLineStatusView(leadingInset: 2)
     private let cpuView = MonitorTwoLineStatusView(leadingInset: 2)
-    private let onSelect: () -> Void
+    private let onSelect: (MonitorStatusKind, NSStatusBarButton) -> Void
 
     private var networkItem: NSStatusItem?
     private var cpuItem: NSStatusItem?
+    private var networkAccessibility: String?
+    private var cpuAccessibility: String?
 
-    init(onSelect: @escaping () -> Void) {
+    init(onSelect: @escaping (MonitorStatusKind, NSStatusBarButton) -> Void) {
         self.onSelect = onSelect
         super.init()
     }
@@ -64,6 +75,12 @@ final class MonitorStatusItems: NSObject {
         removeCPUItem()
     }
 
+    #if MACEXPERT_DEV_HOOKS
+    var buttonForPreview: NSStatusBarButton? {
+        networkItem?.button ?? cpuItem?.button
+    }
+    #endif
+
     // MARK: - 内容
 
     func update(
@@ -76,27 +93,21 @@ final class MonitorStatusItems: NSObject {
         let uploadDetail = MonitorFormat.detailedRate(upload)
         let downloadDetail = MonitorFormat.detailedRate(download)
         let interfaceName = interface ?? "未连接"
-        let uploadText = MonitorFormat.compactRate(upload)
-        let downloadText = MonitorFormat.compactRate(download)
-        let cpuText = MonitorFormat.percent(cpu)
-        let gpuText = MonitorFormat.percent(gpu)
+        let uploadText = Self.displayText(MonitorFormat.compactRate(upload))
+        let downloadText = Self.displayText(MonitorFormat.compactRate(download))
+        let cpuText = Self.displayText(MonitorFormat.percent(cpu))
+        let gpuText = Self.displayText(MonitorFormat.percent(gpu))
 
         networkView.setTop(prefix: "↑", value: uploadText, color: .labelColor)
         networkView.setBottom(prefix: "↓", value: downloadText, color: .labelColor)
-        networkItem?.length = Self.width(for: ["↑ \(uploadText)", "↓ \(downloadText)"])
-        setAccessibility(
-            on: networkItem,
-            text: "网络：上传 \(uploadDetail)，下载 \(downloadDetail)（\(interfaceName)）"
+        setNetworkAccessibility(
+            "网络：上传 \(uploadDetail)，下载 \(downloadDetail)（\(interfaceName)）"
         )
 
         cpuView.setTop(prefix: "C", value: cpuText, color: Self.usageColor(cpu))
         cpuView.setBottom(prefix: "G", value: gpuText, color: Self.usageColor(gpu))
-        cpuItem?.length = Self.width(for: ["C \(cpuText)", "G \(gpuText)"])
         let gpuAccessibility = gpu == nil ? "GPU 不可用" : "GPU \(gpuText)"
-        setAccessibility(
-            on: cpuItem,
-            text: "CPU \(cpuText)，\(gpuAccessibility)"
-        )
+        setCPUAccessibility("CPU \(cpuText)，\(gpuAccessibility)")
     }
 
     // MARK: - 私有
@@ -110,6 +121,11 @@ final class MonitorStatusItems: NSObject {
         case .critical:
             return .systemRed
         }
+    }
+
+    /// 固定宽度下，异常长的文本会整段被裁掉、只剩前缀；宁可显示 `--`。
+    private static func displayText(_ text: String) -> String {
+        text.count <= 4 ? text : "--"
     }
 
     private func makeItem(
@@ -133,7 +149,7 @@ final class MonitorStatusItems: NSObject {
         button.addSubview(view)
         NSLayoutConstraint.activate([
             view.leadingAnchor.constraint(equalTo: button.leadingAnchor),
-            view.trailingAnchor.constraint(equalTo: button.trailingAnchor),
+            view.widthAnchor.constraint(equalToConstant: length),
             view.topAnchor.constraint(equalTo: button.topAnchor),
             view.bottomAnchor.constraint(equalTo: button.bottomAnchor),
         ])
@@ -141,7 +157,19 @@ final class MonitorStatusItems: NSObject {
         return item
     }
 
-    private func setAccessibility(on item: NSStatusItem?, text: String) {
+    private func setNetworkAccessibility(_ text: String) {
+        guard networkAccessibility != text else { return }
+        networkAccessibility = text
+        applyAccessibility(on: networkItem, text: text)
+    }
+
+    private func setCPUAccessibility(_ text: String) {
+        guard cpuAccessibility != text else { return }
+        cpuAccessibility = text
+        applyAccessibility(on: cpuItem, text: text)
+    }
+
+    private func applyAccessibility(on item: NSStatusItem?, text: String) {
         guard let button = item?.button else { return }
         button.toolTip = text
         button.setAccessibilityLabel(text)
@@ -153,6 +181,7 @@ final class MonitorStatusItems: NSObject {
         NSStatusBar.system.removeStatusItem(networkItem)
         networkView.removeFromSuperview()
         self.networkItem = nil
+        networkAccessibility = nil
     }
 
     private func removeCPUItem() {
@@ -160,30 +189,47 @@ final class MonitorStatusItems: NSObject {
         NSStatusBar.system.removeStatusItem(cpuItem)
         cpuView.removeFromSuperview()
         self.cpuItem = nil
+        cpuAccessibility = nil
     }
 
     @objc private func clicked(_ sender: Any?) {
-        onSelect()
+        guard let button = sender as? NSStatusBarButton else { return }
+        let kind: MonitorStatusKind = (networkItem?.button === button) ? .network : .processor
+        onSelect(kind, button)
     }
 }
 
 // MARK: - 双行视图
 
-/// 菜单栏 item 里的两行文字。点击必须穿透到 status item 的 button，
-/// 所以 `hitTest` 固定返回 nil。
+/// 菜单栏 item 里的两行文字。
+/// 直接绘制而不是叠 `NSTextField`：状态栏每次刷新都会做一次离屏快照，
+/// 子视图和 Auto Layout 会让快照成本高出一个数量级。
+/// 点击必须穿透到 status item 的 button，所以 `hitTest` 固定返回 nil。
 final class MonitorTwoLineStatusView: NSView {
 
     static let font = NSFont.monospacedDigitSystemFont(ofSize: 9.5, weight: .regular)
 
     private let leadingInset: CGFloat
-    private let topLabel = MonitorTwoLineStatusView.makeLabel()
-    private let bottomLabel = MonitorTwoLineStatusView.makeLabel()
+    private var topLine = NSAttributedString(string: "")
+    private var bottomLine = NSAttributedString(string: "")
+    private var lastTop: LineSignature?
+    private var lastBottom: LineSignature?
+
+    private struct LineSignature: Equatable {
+        let prefix: String
+        let value: String
+        let color: NSColor
+
+        static func == (lhs: LineSignature, rhs: LineSignature) -> Bool {
+            lhs.prefix == rhs.prefix
+                && lhs.value == rhs.value
+                && lhs.color.isEqual(rhs.color)
+        }
+    }
 
     init(leadingInset: CGFloat) {
         self.leadingInset = leadingInset
         super.init(frame: .zero)
-        addSubview(topLabel)
-        addSubview(bottomLabel)
     }
 
     @available(*, unavailable)
@@ -191,37 +237,56 @@ final class MonitorTwoLineStatusView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// 翻转坐标系，让文字从行框顶部向下排，和原有标签的视觉效果一致。
+    override var isFlipped: Bool { true }
+
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
     }
 
-    override func layout() {
-        super.layout()
+    /// 首次布局时视图可能先以很窄的宽度画过一次；宽度恢复后如果不重绘，
+    /// 图层会一直保留“只有箭头、没有数值”的旧内容。尺寸变化必须重新绘制。
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        if changed {
+            needsDisplay = true
+        }
+    }
 
-        // 两行文字按 10pt 行距居中，比均分按钮高度更紧凑。
-        let lineHeight = min(11, bounds.height)
-        let pitch = max(0, lineHeight - 1)
-        let width = max(0, bounds.width - leadingInset - 2)
-        topLabel.frame = NSRect(
-            x: leadingInset,
-            y: bounds.midY + pitch / 2 - lineHeight / 2,
-            width: width,
-            height: lineHeight
-        )
-        bottomLabel.frame = NSRect(
-            x: leadingInset,
-            y: bounds.midY - pitch / 2 - lineHeight / 2,
-            width: width,
-            height: lineHeight
-        )
+    override func draw(_ dirtyRect: NSRect) {
+        topLine.draw(in: lineRect(top: true))
+        bottomLine.draw(in: lineRect(top: false))
     }
 
     func setTop(prefix: String, value: String, color: NSColor) {
-        topLabel.attributedStringValue = makeLine(prefix: prefix, value: value, color: color)
+        let signature = LineSignature(prefix: prefix, value: value, color: color)
+        guard signature != lastTop else { return }
+        lastTop = signature
+        topLine = makeLine(prefix: prefix, value: value, color: color)
+        needsDisplay = true
     }
 
     func setBottom(prefix: String, value: String, color: NSColor) {
-        bottomLabel.attributedStringValue = makeLine(prefix: prefix, value: value, color: color)
+        let signature = LineSignature(prefix: prefix, value: value, color: color)
+        guard signature != lastBottom else { return }
+        lastBottom = signature
+        bottomLine = makeLine(prefix: prefix, value: value, color: color)
+        needsDisplay = true
+    }
+
+    /// 两行文字按 10pt 行距居中，比均分按钮高度更紧凑。
+    private func lineRect(top: Bool) -> NSRect {
+        let lineHeight = min(11, bounds.height)
+        let pitch = max(0, lineHeight - 1)
+        let width = max(0, bounds.width - leadingInset - 2)
+        let offset = top ? -pitch / 2 : pitch / 2
+        return NSRect(
+            x: leadingInset,
+            y: bounds.midY + offset - lineHeight / 2,
+            width: width,
+            height: lineHeight
+        )
     }
 
     private func makeLine(prefix: String, value: String, color: NSColor) -> NSAttributedString {
@@ -237,20 +302,5 @@ final class MonitorTwoLineStatusView: NSView {
             )
         )
         return text
-    }
-
-    private static func makeLabel() -> NSTextField {
-        let label = NSTextField(labelWithString: "")
-        label.font = font
-        label.textColor = .labelColor
-        label.alignment = .left
-        label.maximumNumberOfLines = 1
-        label.lineBreakMode = .byClipping
-        label.isSelectable = false
-        label.isEditable = false
-        label.isBordered = false
-        label.drawsBackground = false
-        label.cell?.usesSingleLineMode = true
-        return label
     }
 }

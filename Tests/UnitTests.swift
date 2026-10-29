@@ -1142,10 +1142,16 @@ private func testMonitorFormatting() {
     checkEqual(MonitorFormat.compactRate(999), "999B", "999 B 仍显示 B")
     checkEqual(MonitorFormat.compactRate(1000), "1.0K", "1000 B 进入 K")
     checkEqual(MonitorFormat.compactRate(1_240), "1.2K", "1.2K")
-    checkEqual(MonitorFormat.compactRate(12_400), "12.4K", "12.4K")
+    checkEqual(MonitorFormat.compactRate(9_940), "9.9K", "个位保留一位小数")
+    checkEqual(MonitorFormat.compactRate(9_960), "10K", "9.96K 进位后不带小数")
+    checkEqual(MonitorFormat.compactRate(10_000), "10K", "十位以上不带小数")
+    checkEqual(MonitorFormat.compactRate(12_400), "12K", "12.4K 压成 12K，保证四字符")
     checkEqual(MonitorFormat.compactRate(124_000), "124K", "100K 以上不带小数")
     checkEqual(MonitorFormat.compactRate(1_200_000), "1.2M", "1.2M")
     checkEqual(MonitorFormat.compactRate(3_400_000_000), "3.4G", "3.4G")
+    checkEqual(MonitorFormat.compactRate(999_600), "1.0M", "999.6K 进位到 1.0M")
+    checkEqual(MonitorFormat.compactRate(999_999_999), "1.0G", "999.999999M 进位到 1.0G")
+    checkEqual(MonitorFormat.compactRate(999_999_999_999), "1.0T", "999.999999999G 进位到 1.0T")
     checkEqual(MonitorFormat.compactRate(-1), "0B", "负数按 0 处理")
     checkEqual(MonitorFormat.compactRate(.nan), "0B", "NaN 按 0 处理")
     checkEqual(MonitorFormat.compactRate(.infinity), "0B", "无穷大按 0 处理")
@@ -1153,7 +1159,9 @@ private func testMonitorFormatting() {
     checkEqual(MonitorFormat.detailedRate(0), "0 B/s", "详细格式 0")
     checkEqual(MonitorFormat.detailedRate(512), "512 B/s", "详细格式 B/s")
     checkEqual(MonitorFormat.detailedRate(1_200_000), "1.2 MB/s", "详细格式 MB/s")
+    checkEqual(MonitorFormat.detailedRate(12_400), "12.4 KB/s", "详细格式保留小数")
     checkEqual(MonitorFormat.detailedRate(3_400_000_000), "3.4 GB/s", "详细格式 GB/s")
+    checkEqual(MonitorFormat.detailedRate(999_600), "1.0 MB/s", "详细格式同样进位")
 
     checkEqual(MonitorFormat.percent(nil), "--", "缺失百分比显示 --")
     checkEqual(MonitorFormat.percent(0), "0%", "0%")
@@ -1243,8 +1251,18 @@ private func testMonitorNetworkRate() {
             previousTime: 10,
             current: second,
             currentTime: 10.0001
+        ) == nil,
+        "过小的正时间差应跳过，避免速率尖峰"
+    )
+
+    check(
+        NetworkRateMath.rate(
+            previous: first,
+            previousTime: 10,
+            current: second,
+            currentTime: 10.25
         ) != nil,
-        "很小的正时间差仍应算出速率"
+        "0.2 秒以上的时间差应正常计算"
     )
 }
 
@@ -1336,6 +1354,77 @@ private func testMonitorGPUUsage() {
     )
 }
 
+private func testMonitorHistory() {
+    var history = MonitorHistory()
+    for index in 0..<(MonitorHistory.capacity + 5) {
+        history.append(
+            cpu: Double(index),
+            gpu: nil,
+            download: Double(index * 2),
+            upload: Double(index * 3)
+        )
+    }
+
+    checkEqual(history.cpu.count, MonitorHistory.capacity, "历史只保留 60 次采样")
+    check(history.cpu.first == 5, "最旧的采样应被移除")
+    check(history.cpu.last == Double(MonitorHistory.capacity + 4), "最后一条是刚写入的采样")
+    check(history.gpu.last == 0, "缺失的 GPU 值按 0 记录")
+    check(history.download.last == Double((MonitorHistory.capacity + 4) * 2), "下载历史同步写入")
+
+    history.clear()
+    check(
+        history.cpu.isEmpty && history.gpu.isEmpty
+            && history.download.isEmpty && history.upload.isEmpty,
+        "清空历史应移除四组数据"
+    )
+}
+
+private func testMonitorNetworkProcesses() {
+    var tracker = NetworkProcessRateTracker()
+    tracker.rememberName("ZCode", for: 1445)
+    tracker.update(flow: 1, pid: 1445, name: "", rx: 1_000, tx: 500)
+    check(tracker.drain(elapsed: 1).isEmpty, "第一条连接只记录基线")
+
+    tracker.update(flow: 1, pid: 1445, name: "", rx: 3_000, tx: 1_000)
+    tracker.update(flow: 2, pid: 1445, name: "", rx: 500, tx: 0)
+    var rows = tracker.drain(elapsed: 1)
+    checkEqual(rows.count, 1, "同一进程的多条连接应合并")
+    checkEqual(rows[0].name, "ZCode", "进程名从 description 回填")
+    checkClose(rows[0].download, 2_000, "下载速率按字节差计算")
+    checkClose(rows[0].upload, 500, "上传速率按字节差计算")
+
+    tracker.update(flow: 2, pid: 1445, name: "", rx: 1_500, tx: 100)
+    rows = tracker.drain(elapsed: 0.5)
+    checkClose(rows[0].download, 2_000, "两条连接的下行增量应相加")
+    checkClose(rows[0].upload, 200, "两条连接的上行增量应相加")
+
+    tracker.update(flow: 1, pid: 1445, name: "", rx: 1_000, tx: 0)
+    check(tracker.drain(elapsed: 1).isEmpty, "累计值回退时不产生负速率")
+
+    tracker.remove(flow: 1)
+    tracker.update(flow: 1, pid: 1445, name: "", rx: 50, tx: 0)
+    check(tracker.drain(elapsed: 1).isEmpty, "连接重建后按新基线计算")
+
+    var unnamed = NetworkProcessRateTracker()
+    unnamed.update(flow: 1, pid: 999_999, name: "", rx: 0, tx: 0)
+    unnamed.update(flow: 1, pid: 999_999, name: "", rx: 100, tx: 0)
+    rows = unnamed.drain(elapsed: 0)
+    checkEqual(rows[0].name, "PID 999999", "读不到进程名时使用 PID 兜底")
+    checkClose(rows[0].download, 500, "最小采样间隔按 0.2 秒计算")
+
+    for pid in 1...7 {
+        let value = Int32(pid)
+        tracker.update(flow: 100 + UInt(pid), pid: value, name: "P\(pid)", rx: 0, tx: 0)
+        tracker.update(flow: 100 + UInt(pid), pid: value, name: "", rx: Int64(pid) * 100, tx: 0)
+    }
+    rows = tracker.drain(elapsed: 1)
+    checkEqual(rows.count, 5, "只保留速率最高的 5 个进程")
+    checkEqual(rows.first?.pid, 7, "按总速率从高到低排序")
+
+    tracker.reset()
+    check(tracker.drain(elapsed: 1).isEmpty, "重置后不再保留连接和速率")
+}
+
 private func testMonitorStore() {
     let suite = "MacExpert-Monitor-\(UUID().uuidString)"
     guard let defaults = UserDefaults(suiteName: suite) else {
@@ -1408,6 +1497,8 @@ struct UnitTests {
         testMonitorNetworkRate()
         testMonitorCPUUsage()
         testMonitorGPUUsage()
+        testMonitorHistory()
+        testMonitorNetworkProcesses()
         testMonitorStore()
         testAppVersion()
 

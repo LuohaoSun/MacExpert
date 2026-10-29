@@ -91,6 +91,101 @@ struct CPUSampler {
     }
 }
 
+/// 每个核心的利用率，供详情弹窗显示。和整机采样分开维护，
+/// 首次采样没有基线时返回 nil，下一次采样才有数值。
+struct CPUCoreSampler {
+
+    private var previous: [CPUCounters]?
+
+    mutating func reset() {
+        previous = nil
+    }
+
+    mutating func sample() -> [Double]? {
+        var coreCount: natural_t = 0
+        var info: processor_info_array_t?
+        var infoCount: mach_msg_type_number_t = 0
+
+        let result = host_processor_info(
+            mach_host_self(),
+            PROCESSOR_CPU_LOAD_INFO,
+            &coreCount,
+            &info,
+            &infoCount
+        )
+        guard result == KERN_SUCCESS, let info else { return nil }
+
+        defer {
+            let size = vm_size_t(infoCount) * vm_size_t(MemoryLayout<integer_t>.stride)
+            vm_deallocate(
+                mach_task_self_,
+                vm_address_t(UInt(bitPattern: info)),
+                size
+            )
+        }
+
+        guard coreCount > 0 else { return nil }
+
+        let stateCount = Int(CPU_STATE_MAX)
+        var current: [CPUCounters] = []
+        current.reserveCapacity(Int(coreCount))
+        for core in 0..<Int(coreCount) {
+            let base = core * stateCount
+            current.append(
+                CPUCounters(
+                    user: UInt32(bitPattern: info[base + Int(CPU_STATE_USER)]),
+                    system: UInt32(bitPattern: info[base + Int(CPU_STATE_SYSTEM)]),
+                    idle: UInt32(bitPattern: info[base + Int(CPU_STATE_IDLE)]),
+                    nice: UInt32(bitPattern: info[base + Int(CPU_STATE_NICE)])
+                )
+            )
+        }
+
+        guard let previous, previous.count == current.count else {
+            self.previous = current
+            return nil
+        }
+
+        let usages = zip(previous, current).compactMap { old, new in
+            CPUMath.utilization(previous: old, current: new)
+        }
+        self.previous = current
+        return usages.isEmpty ? nil : usages
+    }
+}
+
+/// 菜单栏详情用的短期历史，只保留最近 60 次采样。
+struct MonitorHistory: Equatable {
+
+    static let capacity = 60
+
+    private(set) var cpu: [Double] = []
+    private(set) var gpu: [Double] = []
+    private(set) var download: [Double] = []
+    private(set) var upload: [Double] = []
+
+    mutating func append(cpu: Double?, gpu: Double?, download: Double, upload: Double) {
+        Self.push(cpu ?? 0, into: &self.cpu)
+        Self.push(gpu ?? 0, into: &self.gpu)
+        Self.push(download, into: &self.download)
+        Self.push(upload, into: &self.upload)
+    }
+
+    mutating func clear() {
+        cpu.removeAll()
+        gpu.removeAll()
+        download.removeAll()
+        upload.removeAll()
+    }
+
+    private static func push(_ value: Double, into values: inout [Double]) {
+        values.append(value)
+        if values.count > capacity {
+            values.removeFirst(values.count - capacity)
+        }
+    }
+}
+
 // MARK: - 网络
 
 enum NetworkRateMath {
@@ -107,7 +202,9 @@ enum NetworkRateMath {
         guard previous.interface == current.interface else { return nil }
 
         let elapsed = currentTime - previousTime
-        guard elapsed > 0, elapsed <= 60 else { return nil }
+        // 打开页面/激活 App 可能连续触发两次采样；过小的时间差会把正常的
+        // 字节差放大成巨大的速率，菜单栏虽然固定宽度也会被异常长文本撑爆。
+        guard elapsed >= 0.2, elapsed <= 60 else { return nil }
         guard current.received >= previous.received, current.sent >= previous.sent else {
             return nil
         }
@@ -262,26 +359,22 @@ struct GPUSampler {
 
 enum MonitorFormat {
 
-    /// 菜单栏紧凑格式：`0B` / `512B` / `1.2K` / `12.4K` / `124K` / `1.2M` / `3.4G`。
+    /// 菜单栏紧凑格式：`0B` / `512B` / `1.2K` / `12.4K` / `124K` / `1.2M` / `3.4G` / `1.2T`。
     static func compactRate(_ bytesPerSecond: Double) -> String {
         let value = sanitized(bytesPerSecond).rounded()
-        guard value >= 1000 else { return "\(Int(value))B" }
-
-        for unit in units where value >= unit.divisor {
-            return scaled(value / unit.divisor) + unit.suffix
+        guard let (scaledValue, unit) = scaledValueAndUnit(value) else {
+            return "\(Int(value))B"
         }
-        return "0B"
+        return compactScaled(scaledValue) + unit.suffix
     }
 
     /// 页面上的完整格式，明确写出字节每秒。
     static func detailedRate(_ bytesPerSecond: Double) -> String {
         let value = sanitized(bytesPerSecond).rounded()
-        guard value >= 1000 else { return "\(Int(value)) B/s" }
-
-        for unit in units where value >= unit.divisor {
-            return "\(scaled(value / unit.divisor)) \(unit.suffix)B/s"
+        guard let (scaledValue, unit) = scaledValueAndUnit(value) else {
+            return "\(Int(value)) B/s"
         }
-        return "0 B/s"
+        return "\(scaled(scaledValue)) \(unit.suffix)B/s"
     }
 
     enum UsageLevel: Equatable {
@@ -315,10 +408,31 @@ enum MonitorFormat {
     }
 
     private static let units: [RateUnit] = [
+        RateUnit(divisor: 1_000_000_000_000, suffix: "T"),
         RateUnit(divisor: 1_000_000_000, suffix: "G"),
         RateUnit(divisor: 1_000_000, suffix: "M"),
         RateUnit(divisor: 1_000, suffix: "K"),
     ]
+
+    /// 选择单位并保留一位小数；四舍五入到 1000 时进位到上一个单位，
+    /// 避免出现 `1000K` / `1000M` 这种多一位、宽度不稳定的文本。
+    private static func scaledValueAndUnit(_ value: Double) -> (Double, RateUnit)? {
+        guard value >= 1000 else { return nil }
+
+        var index = units.count - 1
+        for (offset, unit) in units.enumerated() where value >= unit.divisor {
+            index = offset
+            break
+        }
+
+        var unit = units[index]
+        var scaledValue = value / unit.divisor
+        if scaledValue.rounded() >= 1000, index > 0 {
+            unit = units[index - 1]
+            scaledValue = value / unit.divisor
+        }
+        return (scaledValue, unit)
+    }
 
     private static func sanitized(_ value: Double) -> Double {
         guard value.isFinite, value > 0 else { return 0 }
@@ -331,5 +445,16 @@ enum MonitorFormat {
             return String(format: "%.0f", value)
         }
         return String(format: "%.1f", value)
+    }
+
+    /// 菜单栏只留 4 个字符：10 以上不再带小数，否则 `12.4K` 会比
+    /// `999M` 还宽，固定宽度的状态栏会把整段数值裁掉。
+    /// 先按一位小数四舍五入，再判断是否进位到 10，避免 9.96 变成 `10.0K`。
+    private static func compactScaled(_ value: Double) -> String {
+        let oneDecimal = (value * 10).rounded() / 10
+        if oneDecimal >= 10 {
+            return String(format: "%.0f", oneDecimal)
+        }
+        return String(format: "%.1f", oneDecimal)
     }
 }
