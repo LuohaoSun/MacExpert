@@ -4,8 +4,8 @@
 
 ## 当前状态
 
-- 当前版本：`1.1.0`（build `6`），发布标签 `v1.1.0`。
-- 发布资产：`MacExpert-1.1.0.dmg`，SHA-256 `68fb6b36893e506764386995061108ecc13d9c8b5583e1bc2c16c5062f3fabee`。
+- 当前版本：`1.2.0`（build `7`），发布标签 `v1.2.0`。
+- 发布资产：`MacExpert-1.2.0.dmg`，SHA-256 `7915dda5ac469ff951ea387046f146228af210660928f0f63abf333c2e93c29b`。
 - 本机安装位置：`/Applications/MacExpert.app`。
 - 单元测试：`./build.sh test`，当前 **458 项检查**。
 - 发布包是自签、未公证的；`spctl` 拒绝是预期行为，不要为了过 Gatekeeper 去改签名流程，除非用户明确要求产品化。
