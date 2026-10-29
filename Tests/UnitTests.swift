@@ -482,6 +482,66 @@ private func testSmoothScrollClassification() {
     )
     checkEqual(zoom.disposition, .passThrough(.command), "⌘+滚轮是缩放，应放行")
 
+    // Shift+滚轮由系统换成横向滚动。平滑时自己换算成水平增量：
+    // 系统已经换轴就用水平增量，还没换轴就用垂直增量。
+    let shiftWheel = ScrollSample(
+        dyPoints: 1,
+        lineDeltaY: 1,
+        flags: [.maskShift]
+    )
+    checkEqual(
+        shiftWheel.disposition,
+        .passThrough(.shift),
+        "Shift+滚轮是系统横向滚动"
+    )
+    checkEqual(
+        shiftWheel.plan(smooth: true, reverseVertical: true, reverseHorizontal: false),
+        .swallowAndSmooth(dx: -ScrollSample.minimumWheelStep, dy: 0),
+        "Shift+滚轮还没换轴时，垂直增量应转成水平并反向"
+    )
+    checkEqual(
+        shiftWheel.plan(smooth: true, reverseVertical: false, reverseHorizontal: false),
+        .swallowAndSmooth(dx: ScrollSample.minimumWheelStep, dy: 0),
+        "Shift+滚轮关闭反向时按原生方向平滑"
+    )
+    checkEqual(
+        shiftWheel.plan(smooth: true, reverseVertical: false, reverseHorizontal: true),
+        .swallowAndSmooth(dx: -ScrollSample.minimumWheelStep, dy: 0),
+        "只开水平反向时，Shift+滚轮也反向一次"
+    )
+    checkEqual(
+        shiftWheel.plan(smooth: false, reverseVertical: true, reverseHorizontal: false),
+        .modifyAndPass(vertical: true, horizontal: false),
+        "平滑关闭时 Shift+滚轮原地翻垂直增量"
+    )
+    checkEqual(
+        shiftWheel.plan(smooth: false, reverseVertical: false, reverseHorizontal: false),
+        .passThrough(.shift),
+        "平滑和反向都关闭时 Shift+滚轮原样放行"
+    )
+
+    // 系统已经完成换轴时，增量在水平轴上，平滑和反向都直接作用在水平增量上。
+    let shiftSwapped = ScrollSample(
+        dxPoints: 1,
+        lineDeltaX: 1,
+        flags: [.maskShift]
+    )
+    checkEqual(
+        shiftSwapped.plan(smooth: true, reverseVertical: true, reverseHorizontal: false),
+        .swallowAndSmooth(dx: -ScrollSample.minimumWheelStep, dy: 0),
+        "Shift+滚轮已换轴时，水平增量应反向平滑"
+    )
+    checkEqual(
+        shiftSwapped.plan(smooth: false, reverseVertical: true, reverseHorizontal: false),
+        .modifyAndPass(vertical: false, horizontal: true),
+        "平滑关闭且已换轴时，原地翻水平增量"
+    )
+    checkEqual(
+        ScrollSample(dyPoints: 10, flags: [.maskShift, .maskCommand]).disposition,
+        .passThrough(.command),
+        "⌘+Shift+滚轮仍然是缩放"
+    )
+
     let own = ScrollSample(
         dyPoints: 10,
         lineDeltaY: 1,

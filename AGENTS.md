@@ -4,10 +4,10 @@
 
 ## 当前状态
 
-- 当前版本：`1.2.1`（build `8`），发布标签 `v1.2.1`。
-- 发布资产：`MacExpert-1.2.1.dmg`，SHA-256 `de4efb3d722e5d0847fe2db38e1ef0463c72253576fc3dcd70f89eed6c90803f`。
+- 当前版本：`1.2.2`（build `9`），发布标签 `v1.2.2`。
+- 发布资产：`MacExpert-1.2.2.dmg`，SHA-256 `5195ce213a392ff05f3f0d2ab50fdb0c0cb36565657fdf78422fb10b4057d0ee`。
 - 本机安装位置：`/Applications/MacExpert.app`。
-- 单元测试：`./build.sh test`，当前 **466 项检查**。
+- 单元测试：`./build.sh test`，当前 **475 项检查**。
 - 发布包是自签、未公证的；`spctl` 拒绝是预期行为，不要为了过 Gatekeeper 去改签名流程，除非用户明确要求产品化。
 
 ## 硬约束
@@ -114,6 +114,7 @@
     ├── RELEASE_NOTES-1.1.0.md
     ├── RELEASE_NOTES-1.2.0.md
     ├── RELEASE_NOTES-1.2.1.md
+    ├── RELEASE_NOTES-1.2.2.md
     ├── key-mapping-product-spec.md
     └── images/              # README 产品截图
 ```
@@ -153,6 +154,8 @@
 ### 平滑滚动
 
 - 只接管鼠标滚轮。触控板、Magic Mouse、带 `phase`/`momentumPhase` 的手势事件、`⌘`+滚轮一律原样放行。
+- `Shift`+滚轮按横向滚动接管：平滑时把有效横向增量（系统已换轴用水平增量，否则用垂直增量）交给引擎，合成事件去掉 Shift 位，避免系统二次换轴；平滑关闭时原地翻转后放行。
+- `Shift`+滚轮的横向方向由反向开关控制：垂直或水平反向任一开启就翻转一次，不会翻两次。
 - 离散滚轮先归一化到至少 33.6pt 基准，再乘滚动倍率；平滑时长 80–400ms，倍率 0.5–4.0。
 - 快速加速按滚轮速度动态升到最高倍率（1.5–10×，默认 2.5×），停手或换向重置。
 - 合成滚轮必须全局投递到 `.cghidEventTap`；`CGEventPostToPid` 不会滚动窗口。
@@ -226,5 +229,5 @@
 
 - 产品说明：`README.md`
 - 键映射详细规格：`Docs/key-mapping-product-spec.md`
-- 当前版本发布说明：`Docs/RELEASE_NOTES-1.2.1.md`
+- 当前版本发布说明：`Docs/RELEASE_NOTES-1.2.2.md`
 - 签名脚本：`Scripts/setup-dev-signing.sh`

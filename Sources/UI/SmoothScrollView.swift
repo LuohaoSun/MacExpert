@@ -314,7 +314,7 @@ struct SmoothScrollView: View {
 
                     Divider()
 
-                    Text("触控板、Magic Mouse 和 ⌘+滚轮（缩放）会被原样放行，不受这里的平滑与反向影响。")
+                    Text("触控板、Magic Mouse 和 ⌘+滚轮（缩放）会被原样放行，不受这里的平滑与反向影响。Shift+滚轮按横向滚动处理，平滑和反向都生效。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

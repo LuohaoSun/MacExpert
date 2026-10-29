@@ -242,8 +242,12 @@ final class SmoothScrollFeature: ObservableObject {
                 passthrough: nil,
                 boost: boost
             )
+            // Shift+滚轮已经换算成水平增量，合成事件必须去掉 Shift 位；
+            // 否则系统可能按 Shift 再换一次轴，把横向滚动变回垂直。
+            var flags = sample.flags
+            flags.remove(.maskShift)
             // tap 回调只入队，不等引擎队列，保证滚轮事件立刻返回。
-            enqueue(dx: dx * boost, dy: dy * boost, flags: sample.flags)
+            enqueue(dx: dx * boost, dy: dy * boost, flags: flags)
             return .swallow
         }
     }
