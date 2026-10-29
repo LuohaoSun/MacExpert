@@ -71,12 +71,12 @@ final class MonitorStatusItems: NSObject {
         networkView.setTop(
             prefix: "↑",
             value: MonitorFormat.compactRate(upload),
-            color: .systemOrange
+            color: .labelColor
         )
         networkView.setBottom(
             prefix: "↓",
             value: MonitorFormat.compactRate(download),
-            color: .systemBlue
+            color: .labelColor
         )
         setAccessibility(
             on: networkItem,
@@ -86,12 +86,12 @@ final class MonitorStatusItems: NSObject {
         cpuView.setTop(
             prefix: "C",
             value: MonitorFormat.percent(cpu),
-            color: .systemGreen
+            color: .labelColor
         )
         cpuView.setBottom(
             prefix: "G",
             value: MonitorFormat.percent(gpu),
-            color: .systemPurple
+            color: .labelColor
         )
         let gpuText = gpu == nil ? "GPU 不可用" : "GPU \(MonitorFormat.percent(gpu))"
         setAccessibility(
@@ -211,7 +211,7 @@ final class MonitorTwoLineStatusView: NSView {
     }
 
     private func makeLine(prefix: String, value: String, color: NSColor) -> NSAttributedString {
-        let font = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .medium)
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .semibold)
         let text = NSMutableAttributedString(
             string: prefix,
             attributes: [.font: font, .foregroundColor: color]
@@ -227,7 +227,7 @@ final class MonitorTwoLineStatusView: NSView {
 
     private static func makeLabel() -> NSTextField {
         let label = NSTextField(labelWithString: "")
-        label.font = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .medium)
+        label.font = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .semibold)
         label.textColor = .labelColor
         label.alignment = .left
         label.maximumNumberOfLines = 1

@@ -94,12 +94,12 @@ struct MonitorView: View {
                         top: MenuBarPreviewLine(
                             prefix: "↑",
                             value: MonitorFormat.compactRate(monitor.uploadRate),
-                            color: .orange
+                            color: .primary
                         ),
                         bottom: MenuBarPreviewLine(
                             prefix: "↓",
                             value: MonitorFormat.compactRate(monitor.downloadRate),
-                            color: .blue
+                            color: .primary
                         ),
                         visible: monitor.showNetwork
                     )
@@ -109,12 +109,12 @@ struct MonitorView: View {
                         top: MenuBarPreviewLine(
                             prefix: "C",
                             value: MonitorFormat.percent(monitor.cpuUsage),
-                            color: Theme.green
+                            color: .primary
                         ),
                         bottom: MenuBarPreviewLine(
                             prefix: "G",
                             value: MonitorFormat.percent(monitor.gpuUsage),
-                            color: .purple
+                            color: .primary
                         ),
                         visible: monitor.showCPU
                     )
