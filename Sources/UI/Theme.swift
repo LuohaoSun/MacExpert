@@ -40,6 +40,8 @@ struct CardSurface<Content: View>: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(Color.primary.opacity(borderOpacity), lineWidth: 1)
         )
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .shadow(color: .black.opacity(0.04), radius: 3, x: 0, y: 1)
     }
 }
 
@@ -70,14 +72,14 @@ struct KeyCap: View {
         Text(text)
             .font(.system(size: 10.5, weight: .medium, design: .rounded))
             .foregroundStyle(onFilled ? Color.white : Color.primary)
-            .frame(minWidth: 19, minHeight: 19)
-            .padding(.horizontal, 3)
+            .frame(minWidth: 20, minHeight: 20)
+            .padding(.horizontal, 4)
             .background(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                RoundedRectangle(cornerRadius: 5.5, style: .continuous)
                     .fill(onFilled ? Color.white.opacity(0.18) : Color.primary.opacity(0.075))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                RoundedRectangle(cornerRadius: 5.5, style: .continuous)
                     .strokeBorder(
                         onFilled ? Color.white.opacity(0.25) : Color.primary.opacity(0.09),
                         lineWidth: 0.8

@@ -135,6 +135,7 @@ struct DisclosureRow<Content: View>: View {
 
             if isExpanded {
                 content
+                    .padding(.leading, 19)
                     .padding(.top, 12)
                     .transition(.opacity)
             }
@@ -144,7 +145,7 @@ struct DisclosureRow<Content: View>: View {
 
 // MARK: - 权限提示
 
-/// 橙色权限提示条：说明 + 去授权 / 重新检查。
+/// 橙色权限提示条：说明 + 打开系统设置 / 重新检查。
 struct PermissionBanner: View {
     var title: String
     var detail: String?
@@ -181,7 +182,7 @@ struct PermissionBanner: View {
 
             Spacer(minLength: 12)
 
-            Button("去授权", action: onGrant)
+            Button("打开系统设置", action: onGrant)
                 .buttonStyle(.borderedProminent)
             Button("重新检查", action: onRecheck)
                 .buttonStyle(.bordered)
@@ -190,6 +191,10 @@ struct PermissionBanner: View {
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color.orange.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.orange.opacity(0.22), lineWidth: 1)
         )
     }
 }

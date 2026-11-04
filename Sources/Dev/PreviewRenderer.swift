@@ -115,8 +115,8 @@ enum PreviewRenderer {
             let editorNumber = emptyNumber + 1
             render(
                 KeyMappingEditor(context: context),
-                width: 520,
-                height: 700,
+                width: 480,
+                height: nil,
                 scheme: .light,
                 to: url.appendingPathComponent(
                     String(format: "%02d-window-keymapping-editor-light.png", editorNumber)
@@ -140,8 +140,8 @@ enum PreviewRenderer {
             let newContext = KeyMappingEditorContext(id: newDraft.id, model: newModel)
             render(
                 KeyMappingEditor(context: newContext),
-                width: 520,
-                height: 700,
+                width: 480,
+                height: nil,
                 scheme: .light,
                 to: url.appendingPathComponent(
                     String(format: "%02d-window-keymapping-editor-new-light.png", editorNumber + 1)
@@ -322,6 +322,9 @@ enum PreviewRenderer {
         hosting.layoutSubtreeIfNeeded()
         container.layoutSubtreeIfNeeded()
         container.displayIfNeeded()
+        // 侧栏选中行由 NSVisualEffectView(.selection) 绘制；离屏截图没有窗口
+        // 服务器参与混合，它会变成不透明黑色，把选中项的文字整个盖住。
+        neutralizeSelectionMaterials(in: container)
 
         defer { window.orderOut(nil) }
 
@@ -335,6 +338,31 @@ enum PreviewRenderer {
         try? data.write(to: url)
         print("wrote \(url.path) \(rep.pixelsWide)x\(rep.pixelsHigh) @ \(Int(finalHeight))pt")
         fflush(stdout)
+    }
+
+    /// 系统侧栏的选中底色是 `NSVisualEffectView(material: .selection)`。
+    /// 真实窗口里由窗口服务器把它和背后内容混合，离屏 `cacheDisplay` 拿不到
+    /// 这层混合结果，只会画出一块不透明度 100% 的黑色，把图标和文字盖住。
+    /// 截图前隐藏这层材质，用非激活窗口的选中色补一个同尺寸胶囊；
+    /// 真实窗口和正常使用路径不经过这里。
+    private static func neutralizeSelectionMaterials(in root: NSView) {
+        for subview in root.subviews {
+            neutralizeSelectionMaterials(in: subview)
+        }
+        guard let effect = root as? NSVisualEffectView,
+              effect.material == .selection,
+              !effect.isHidden
+        else { return }
+
+        let frame = effect.frame
+        effect.isHidden = true
+
+        let capsule = NSView(frame: frame)
+        capsule.wantsLayer = true
+        capsule.layer?.backgroundColor = NSColor.unemphasizedSelectedContentBackgroundColor.cgColor
+        capsule.layer?.cornerRadius = min(7, frame.height / 2)
+        capsule.layer?.cornerCurve = .continuous
+        effect.superview?.addSubview(capsule, positioned: .below, relativeTo: nil)
     }
 }
 #endif

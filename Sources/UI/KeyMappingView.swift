@@ -13,7 +13,7 @@ struct KeyMappingView: View {
             if !app.trusted {
                 PermissionBanner(
                     title: "需要辅助功能权限，鼠标按键映射才能生效。",
-                    detail: "授权后侧键才会被监听；与剪贴板敲入共用这一项权限。",
+                    detail: "授权后才能识别鼠标侧键；与剪贴板敲入、平滑滚动共用此权限。",
                     onRecheck: {
                         app.refreshTrust()
                         mapping.refreshPermission()
@@ -38,7 +38,7 @@ struct KeyMappingView: View {
             KeyMappingEditor(context: context)
         }
         .alert(
-            "删除这条映射？",
+            "要删除这条映射吗？",
             isPresented: Binding(
                 get: { mapping.pendingDelete != nil },
                 set: { if !$0 { mapping.pendingDelete = nil } }
@@ -105,34 +105,34 @@ struct KeyMappingView: View {
     }
 
     private var statusTitle: String {
-        if !app.trusted { return "等待辅助功能权限" }
-        if !mapping.enabled { return "鼠标按键映射已暂停" }
-        if mapping.mappings.isEmpty { return "等待添加映射" }
-        if mapping.activeCount == 0 { return "没有生效的映射" }
+        if !app.trusted { return "需要辅助功能权限" }
+        if !mapping.enabled { return "鼠标按键映射已关闭" }
+        if mapping.mappings.isEmpty { return "尚未添加映射" }
+        if mapping.activeCount == 0 { return "暂无启用的映射" }
 
         switch mapping.tapState {
         case .running: return "鼠标按键映射已启用"
-        case .permissionDenied: return "等待辅助功能权限"
-        case .failed: return "鼠标监听未启动"
-        case .stopped: return "鼠标监听未启动"
+        case .permissionDenied: return "需要辅助功能权限"
+        case .failed: return "鼠标按键检测未运行"
+        case .stopped: return "鼠标按键检测未运行"
         }
     }
 
     private var statusSubtitle: String {
-        if !app.trusted { return "授权后才会开始监听鼠标侧键" }
-        if !mapping.enabled { return "侧键已恢复系统默认行为" }
-        if mapping.mappings.isEmpty { return "添加第一条映射后开始监听" }
-        if mapping.activeCount == 0 { return "打开任意一条映射后开始监听" }
+        if !app.trusted { return "授权后才能识别并映射鼠标侧键" }
+        if !mapping.enabled { return "鼠标侧键保持系统默认行为" }
+        if mapping.mappings.isEmpty { return "添加第一条映射后即可生效" }
+        if mapping.activeCount == 0 { return "开启任意一条映射后即可生效" }
 
         switch mapping.tapState {
         case .failed(let message):
             return message
         case .permissionDenied:
-            return "授权后才会开始监听鼠标侧键"
+            return "授权后才能识别并映射鼠标侧键"
         case .stopped:
             return "正在启动鼠标监听…"
         case .running:
-            var text = "正在监听 \(mapping.activeCount) 条映射"
+            var text = "已启用 \(mapping.activeCount) 条映射"
             if let last = mapping.lastTrigger {
                 text += " · 最近：\(MouseButton.label(last.button)) → \(last.combo.displayText)（\(last.app)）"
             }
@@ -167,9 +167,9 @@ struct KeyMappingView: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("映射")
+                        Text("按键映射")
                             .font(.headline)
-                        Text("侧键松开后会发送你设定的快捷键，原来的行为会被拦截。")
+                        Text("按下对应的鼠标按键时触发快捷键，并替换原有按键行为。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -227,6 +227,11 @@ struct KeyMappingView: View {
                     }
 
                     Spacer(minLength: 0)
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .accessibilityHidden(true)
                 }
                 .contentShape(Rectangle())
             }
@@ -344,6 +349,11 @@ struct KeyMappingView: View {
                     .foregroundStyle(.secondary)
 
                 Spacer(minLength: 0)
+
+                Label("使用", systemImage: "plus.circle")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Theme.accent)
+                    .accessibilityHidden(true)
             }
             .padding(.horizontal, 10)
             .frame(height: 34)
@@ -371,11 +381,11 @@ struct KeyMappingView: View {
             ) {
                 VStack(alignment: .leading, spacing: 10) {
                     SettingsRow(leading: "发送间隔") {
-                        Slider(value: sendDelayBinding, in: 0...200, step: 10)
+                        Slider(value: sendDelayBinding, in: 0...200)
                         Text("\(Int(mapping.sendDelayMs))ms")
                             .font(.callout.monospacedDigit())
                             .foregroundStyle(.secondary)
-                            .frame(width: 52, alignment: .trailing)
+                            .frame(width: 56, alignment: .trailing)
                     }
 
                     Divider()
@@ -394,7 +404,7 @@ struct KeyMappingView: View {
                         Image(systemName: "clock.arrow.circlepath")
                             .foregroundStyle(.secondary)
                             .frame(width: 16)
-                        Text("触发记录只保留在内存（最多 20 条），不写入日志。")
+                        Text("触发记录仅保存在内存中（最多 20 条），退出应用后自动清空。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Spacer(minLength: 4)
@@ -412,17 +422,17 @@ struct KeyMappingView: View {
     private var sendDelayBinding: Binding<Double> {
         Binding(
             get: { mapping.sendDelayMs },
-            set: { mapping.sendDelayMs = min(max($0, 0), 200) }
+            set: { mapping.sendDelayMs = min(max(($0 / 10).rounded() * 10, 0), 200) }
         )
     }
 
     private var detectedDetail: String {
         guard let event = mapping.lastDetected else {
-            return "按一下鼠标侧键，这里会显示系统编号"
+            return "按一下鼠标侧键或中键，这里会显示识别到的按键"
         }
         let time = event.date.formatted(date: .omitted, time: .standard)
-        let suffix = event.mapped ? " · 已映射" : ""
-        return "按钮 \(event.button) · \(event.app) · \(time)\(suffix)"
+        let suffix = event.mapped ? " · 已触发映射" : ""
+        return "\(MouseButton.label(event.button))（编号 \(event.button)）· \(event.app) · \(time)\(suffix)"
     }
 
     // MARK: - 提示
@@ -478,19 +488,19 @@ struct MouseButtonBadge: View {
     var body: some View {
         HStack(spacing: 5) {
             Image(systemName: "computermouse")
-                .font(.system(size: 10.5, weight: .medium))
+                .font(.system(size: 10, weight: .medium))
             Text(MouseButton.label(button))
-                .font(.system(size: 11.5, weight: .medium))
+                .font(.system(size: 11, weight: .medium))
         }
         .foregroundStyle(.secondary)
-        .padding(.horizontal, 7)
-        .frame(height: 24)
+        .padding(.horizontal, 6)
+        .frame(height: 20)
         .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
+            RoundedRectangle(cornerRadius: 5.5, style: .continuous)
                 .fill(Color.primary.opacity(0.05))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
+            RoundedRectangle(cornerRadius: 5.5, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.8)
         )
         .help(MouseButton.hint(button))

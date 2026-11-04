@@ -6,6 +6,7 @@ struct MainWindowView: View {
 
     var body: some View {
         split
+            .tint(Theme.accent)
             .ignoresSafeArea(.container, edges: .top)
             .navigationTitle(app.section.title)
             .toolbar { sidebarToolbar }

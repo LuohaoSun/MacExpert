@@ -28,15 +28,15 @@ struct SettingsView: View {
 
                 HStack(spacing: 8) {
                     Circle()
-                        .fill(app.trusted ? Color.green : Color.orange)
-                        .frame(width: 8, height: 8)
+                        .fill(app.trusted ? Theme.green : Color.orange)
+                        .frame(width: 6, height: 6)
                         .accessibilityHidden(true)
-                    Text(app.trusted ? "辅助功能已授权" : "尚未获得辅助功能权限")
+                    Text(app.trusted ? "辅助功能权限已开启" : "需要辅助功能权限")
                 }
 
                 Text(app.trusted
-                     ? "敲入与鼠标按键映射共用这一项权限。"
-                     : "系统设置 → 隐私与安全性 → 辅助功能")
+                     ? "剪贴板敲入、鼠标按键映射与平滑滚动共用此权限。"
+                     : "请在「系统设置 > 隐私与安全性 > 辅助功能」中允许 MacExpert。")
                     .font(.callout)
                     .foregroundStyle(.secondary)
 
@@ -45,7 +45,7 @@ struct SettingsView: View {
                         Button("打开系统设置") { Permissions.requestAccess() }
                             .buttonStyle(.bordered)
                     } else {
-                        Button("去授权") { Permissions.requestAccess() }
+                        Button("打开系统设置") { Permissions.requestAccess() }
                             .buttonStyle(.borderedProminent)
                     }
                     Button("重新检查") { app.refreshTrust() }
@@ -60,7 +60,7 @@ struct SettingsView: View {
     private var hotkeyFailuresCard: some View {
         CardSurface {
             VStack(alignment: .leading, spacing: 8) {
-                Text("热键未能注册")
+                Text("快捷键冲突")
                     .font(.headline)
 
                 ForEach(hotkeys.failures) { failure in
@@ -75,7 +75,7 @@ struct SettingsView: View {
                     }
                 }
 
-                Text("热键注册失败后，对应功能无法用快捷键触发；可在系统设置的键盘快捷键里检查冲突。")
+                Text("以上快捷键已被其他应用占用，关闭冲突应用或修改其快捷键后即可恢复。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -90,10 +90,11 @@ struct SettingsView: View {
                 Text("通用")
                     .font(.headline)
 
-                SettingsRow("开机自启", detail: "登录后自动驻留菜单栏") {
+                SettingsRow("开机自动启动", detail: "登录系统后自动在菜单栏运行") {
                     Toggle("", isOn: loginBinding)
                         .labelsHidden()
                         .toggleStyle(.switch)
+                        .controlSize(.small)
                 }
 
                 if let error = app.loginError {
@@ -114,7 +115,7 @@ struct SettingsView: View {
                     .font(.headline)
 
                 LogPathRow(
-                    status: clip.debugLog ? "含字符明文" : "不含剪贴板内容",
+                    status: clip.debugLog ? "包含剪贴板文字" : "仅记录运行状态，不含剪贴板内容",
                     statusColor: clip.debugLog ? Color.orange : Color.secondary,
                     openTitle: "在 Finder 中显示",
                     showsFolderButton: true
@@ -136,10 +137,10 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("MacExpert")
                         .font(.headline)
-                    Text("版本 \(app.version) · 自用 Mac 小工具集")
+                    Text("版本 \(app.version) · 原生 macOS 效率工具箱")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text("主窗口打开时会显示 Dock 图标和 App 菜单；关闭窗口后回到纯菜单栏状态。")
+                    Text("打开主窗口时显示 Dock 图标与应用菜单；关闭窗口后自动回到菜单栏静默运行。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

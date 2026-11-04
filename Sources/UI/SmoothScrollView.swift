@@ -80,14 +80,17 @@ struct SmoothScrollView: View {
     }
 
     private var statusTitle: String {
-        if !app.trusted { return "等待辅助功能权限" }
+        if !app.trusted { return "需要辅助功能权限" }
         if !scroll.enabled { return "平滑滚动已关闭" }
 
         switch scroll.tapState {
-        case .running: return "平滑滚动已启用"
-        case .permissionDenied: return "等待辅助功能权限"
-        case .failed: return "滚轮监听未启动"
-        case .stopped: return "滚轮监听未启动"
+        case .running:
+            if !scroll.smooth && !scroll.reverseVertical && !scroll.reverseHorizontal {
+                return "平滑滚动未启用效果"
+            }
+            return "平滑滚动已启用"
+        case .permissionDenied: return "需要辅助功能权限"
+        case .failed, .stopped: return "滚轮服务未运行"
         }
     }
 
@@ -97,7 +100,13 @@ struct SmoothScrollView: View {
 
         switch scroll.tapState {
         case .running:
-            return "已接管鼠标滚轮，触控板保持原生"
+            if !scroll.smooth && !scroll.reverseVertical && !scroll.reverseHorizontal {
+                return "请开启下方的平滑滚动或方向反向"
+            }
+            if !scroll.smooth {
+                return "已开启鼠标滚轮方向反向，触控板保持原生"
+            }
+            return "已接管鼠标滚轮，触控板保持系统原生手感"
         case .permissionDenied:
             return "授权后才能接管鼠标滚轮"
         case .failed(let message):
@@ -141,17 +150,18 @@ struct SmoothScrollView: View {
 
                 SettingsRow(
                     "平滑滚动",
-                    detail: "关闭后只在原事件上反向，不接管、不加倍率"
+                    detail: "关闭后仅保留下方的方向反向，不改变滚动距离与动画"
                 ) {
                     Toggle("", isOn: smoothBinding)
                         .labelsHidden()
                         .toggleStyle(.switch)
+                        .controlSize(.small)
                         .accessibilityLabel("平滑滚动")
                 }
 
                 VStack(alignment: .leading, spacing: 12) {
                     SettingsRow(leading: "平滑时长") {
-                        Slider(value: durationBinding, in: 80...400, step: 20)
+                        Slider(value: durationBinding, in: 80...400)
                             .accessibilityLabel("平滑时长")
                         Text("\(Int(scroll.durationMs))ms")
                             .font(.callout.monospacedDigit())
@@ -160,7 +170,7 @@ struct SmoothScrollView: View {
                     }
 
                     SettingsRow(leading: "滚动倍率") {
-                        Slider(value: gainBinding, in: 0.5...4.0, step: 0.1)
+                        Slider(value: gainBinding, in: 0.5...4.0)
                             .accessibilityLabel("滚动倍率")
                         Text(String(format: "%.1f×", scroll.gain))
                             .font(.callout.monospacedDigit())
@@ -169,7 +179,7 @@ struct SmoothScrollView: View {
                     }
 
                     SettingsRow(leading: "最高加速") {
-                        Slider(value: accelerationMaxBinding, in: 1.5...10.0, step: 0.1)
+                        Slider(value: accelerationMaxBinding, in: 1.5...10.0)
                             .accessibilityLabel("最高加速")
                         Text(String(format: "%.1f×", scroll.accelerationMax))
                             .font(.callout.monospacedDigit())
@@ -186,6 +196,7 @@ struct SmoothScrollView: View {
                     Toggle("", isOn: reverseVerticalBinding)
                         .labelsHidden()
                         .toggleStyle(.switch)
+                        .controlSize(.small)
                         .accessibilityLabel("垂直方向反向")
                 }
 
@@ -193,6 +204,7 @@ struct SmoothScrollView: View {
                     Toggle("", isOn: reverseHorizontalBinding)
                         .labelsHidden()
                         .toggleStyle(.switch)
+                        .controlSize(.small)
                         .accessibilityLabel("水平方向反向")
                 }
             }
@@ -266,7 +278,7 @@ struct SmoothScrollView: View {
                     }
                     .padding(.horizontal, 10)
                 }
-                .frame(height: 150)
+                .frame(height: 144)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(Color.primary.opacity(0.025))
@@ -340,10 +352,9 @@ struct SmoothScrollView: View {
                 parts.append(String(format: "加速 %.1f× · 总 %.1f×", input.boost, input.boost * scroll.gain))
             }
         } else {
-            parts.append("未接管（\(input.passthrough?.label ?? "放行")）")
+            parts.append("已放行（\(input.passthrough?.label ?? "系统默认")）")
         }
 
-        parts.append("PID \(input.pid)")
         parts.append(input.date.formatted(date: .omitted, time: .standard))
         return parts.joined(separator: " · ")
     }
@@ -355,16 +366,16 @@ struct SmoothScrollView: View {
             VStack(alignment: .leading, spacing: 10) {
                 tip(
                     icon: "exclamationmark.triangle",
-                    text: Text("**别和 iScroll、Mos、罗技 Options 等平滑工具同时运行。** 两层平滑叠在一起会变成双重缓动，手感会发飘。先退出它们再试。"),
+                    text: Text("**请勿与 Mos、iScroll、Logi Options+ 等平滑滚动工具同时开启。** 叠加平滑会导致滚动发飘，建议只保留其中一个。"),
                     color: .orange
                 )
                 tip(
                     icon: "computermouse",
-                    text: Text("**部分鼠标驱动会发送连续或带相位的事件。** 这类事件看起来像触控板，会被原样放行；如果滚轮完全没反应，先在驱动里关掉「平滑滚动」。")
+                    text: Text("**部分鼠标驱动会把滚轮模拟成触控板手势。** 如果开启后滚轮没有平滑效果，请先在鼠标驱动中关闭其自带的平滑滚动。")
                 )
                 tip(
                     icon: "magnifyingglass",
-                    text: Text("**⌘+滚轮是系统缩放。** 带 ⌘ 的滚轮一律不接管，避免把缩放改成滚动。")
+                    text: Text("**按住 ⌘ 滚动会原样放行给系统处理**，不会影响页面或画布缩放。")
                 )
             }
         }

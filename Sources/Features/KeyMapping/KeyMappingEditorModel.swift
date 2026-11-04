@@ -114,7 +114,7 @@ final class KeyMappingEditorModel: ObservableObject {
         if started {
             isCapturingButton = true
         } else {
-            captureError = "需要辅助功能权限和监听才能自动捕获；可以先手动选择按钮。"
+            captureError = "需要辅助功能权限才能自动识别鼠标按键；你也可以直接手动选择。"
         }
     }
 

@@ -61,7 +61,7 @@ final class TypeClipFeature: ObservableObject {
         }
     }
 
-    /// 唯一的速度轴（ms/字符）。字符间隔、按住时长、随机抖动、修饰键延迟都由它派生。
+    /// 唯一的速度轴（ms/字符）。字符间隔、按键时长、随机浮动、修饰键等待都由它派生。
     @Published var paceMs: Double {
         didSet {
             defaults.set(paceMs, forKey: "paceMs")
@@ -171,7 +171,7 @@ final class TypeClipFeature: ObservableObject {
 
     var derivedDetail: String {
         let d = Self.derived(paceMs: paceMs)
-        return "按住 \(Int(d.hold))ms · 抖动 \(Int(d.jitter))ms · 修饰键 \(Int(d.modifierDelay))ms"
+        return "按键时长 \(Int(d.hold))ms · 随机浮动 \(Int(d.jitter))ms · 修饰键等待 \(Int(d.modifierDelay))ms"
     }
 
     var engineConfig: TyperEngine.Config {

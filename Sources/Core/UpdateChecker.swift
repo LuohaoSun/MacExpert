@@ -126,8 +126,8 @@ final class UpdateChecker {
             if let currentVersion = AppVersion(current),
                let latestVersion = AppVersion(latest),
                currentVersion > latestVersion {
-                alert.messageText = "当前版本较新"
-                alert.informativeText = "当前版本 \(current)，GitHub 最新正式版是 \(latest)。本地版本更新，无需更新。"
+                alert.messageText = "当前已是最新版本"
+                alert.informativeText = "你正在使用 MacExpert \(current)，无需更新。"
             } else {
                 alert.messageText = "已是最新版本"
                 alert.informativeText = "当前版本 \(current) 已是 GitHub 上最新的正式版。"
@@ -138,7 +138,7 @@ final class UpdateChecker {
             alert.messageText = "发现新版本 \(latest)"
             alert.informativeText = "当前版本 \(current)，最新版本 \(latest)。\n\n是否打开 GitHub 发布页查看更新说明并下载？"
             alert.addButton(withTitle: "打开发布页")
-            alert.addButton(withTitle: "以后再说")
+            alert.addButton(withTitle: "稍后")
             NSApp.activate(ignoringOtherApps: true)
             if alert.runModal() == .alertFirstButtonReturn {
                 NSWorkspace.shared.open(releaseURL)

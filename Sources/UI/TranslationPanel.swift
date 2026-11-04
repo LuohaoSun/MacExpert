@@ -24,12 +24,26 @@ struct TranslationPanel: View {
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .frame(minWidth: 480, minHeight: 360)
+        .tint(Theme.accent)
     }
 
     private var isBusy: Bool {
         switch feature.state {
         case .loading, .streaming: return true
         default: return false
+        }
+    }
+
+    private var busyMessage: String {
+        switch feature.state {
+        case .loading:
+            return feature.lastDecision?.isDictionary == true
+                ? "正在查询词典…"
+                : "正在连接翻译服务…"
+        case .streaming:
+            return "正在翻译…"
+        default:
+            return ""
         }
     }
 
@@ -92,7 +106,7 @@ struct TranslationPanel: View {
                     Text("输入要翻译的单词或文本…")
                         .font(.system(size: 15))
                         .foregroundStyle(.tertiary)
-                        .padding(.leading, 11)
+                        .padding(.leading, 10)
                         .padding(.top, 8)
                         .allowsHitTesting(false)
                 }
@@ -111,7 +125,7 @@ struct TranslationPanel: View {
                 if isBusy {
                     ProgressView()
                         .controlSize(.small)
-                    Text(feature.state == .loading ? "正在请求供应商…" : "正在翻译…")
+                    Text(busyMessage)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -212,10 +226,10 @@ struct TranslationPanel: View {
 
     private var notConfiguredView: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("先配置供应商", systemImage: "key.horizontal")
+            Label("尚未配置翻译服务", systemImage: "key.horizontal")
                 .font(.headline)
 
-            Text("热键翻译使用你自己的 OpenAI Chat Completions 兼容服务。填入 Base URL、API Key 和模型后即可使用。")
+            Text("配置兼容 OpenAI 接口的服务地址、API 密钥和模型后，即可按 ⌥空格 随时查词与翻译。")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -228,18 +242,13 @@ struct TranslationPanel: View {
         }
     }
 
+    /// 加载状态只在这里保留一行安静的文字；
+    /// 转圈和「取消」已经在输入区下方，避免同一面板出现两套相同控件。
     private var loadingView: some View {
-        HStack(spacing: 10) {
-            ProgressView()
-                .controlSize(.small)
-            Text("正在请求供应商…")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 8)
-            Button("取消") { feature.cancelTranslation() }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-        }
+        Text(busyMessage)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func streamingView(_ text: String) -> some View {
@@ -250,13 +259,7 @@ struct TranslationPanel: View {
                 ProgressView()
                     .controlSize(.small)
                 Spacer(minLength: 8)
-                Button {
-                    copy(text)
-                } label: {
-                    Label("复制", systemImage: "doc.on.doc")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                copyButton(text)
                 Button("重新翻译") { feature.submit() }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -275,13 +278,7 @@ struct TranslationPanel: View {
                 Text("译文")
                     .font(.headline)
                 Spacer(minLength: 8)
-                Button {
-                    copy(text)
-                } label: {
-                    Label("复制", systemImage: "doc.on.doc")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                copyButton(text)
                 Button("重新翻译") { feature.submit() }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -299,17 +296,11 @@ struct TranslationPanel: View {
             HStack(spacing: 8) {
                 Text("词典结果")
                     .font(.headline)
-                Text("未解析成结构化词典，按原文显示")
+                Text("词典格式不完整，已直接显示结果")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 8)
-                Button {
-                    copy(text)
-                } label: {
-                    Label("复制", systemImage: "doc.on.doc")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                copyButton(text)
             }
 
             Text(text)
@@ -323,7 +314,7 @@ struct TranslationPanel: View {
         VStack(alignment: .leading, spacing: 10) {
             Label("翻译失败", systemImage: "exclamationmark.triangle.fill")
                 .font(.headline)
-                .foregroundStyle(.orange)
+                .foregroundStyle(.red)
 
             Text(message)
                 .font(.callout)
@@ -331,9 +322,15 @@ struct TranslationPanel: View {
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Button("重试") { feature.submit() }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+            HStack(spacing: 8) {
+                Button("重试") { feature.submit() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+                Button("打开设置") { onOpenSettings() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
         }
     }
 
@@ -362,13 +359,7 @@ struct TranslationPanel: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
 
-                Button {
-                    copy(dictionaryText(entry))
-                } label: {
-                    Label("复制", systemImage: "doc.on.doc")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                copyButton(dictionaryText(entry))
             }
 
             ForEach(senseGroups(entry.senses)) { group in
@@ -459,7 +450,7 @@ struct TranslationPanel: View {
 
     private var footer: some View {
         HStack(spacing: 10) {
-            Text("回车翻译 · Shift+回车换行 · Esc 关闭")
+            Text("↩ 翻译 · ⇧↩ 换行 · ⎋ 关闭")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -479,9 +470,24 @@ struct TranslationPanel: View {
 
     // MARK: 工具
 
+    private func copyButton(_ text: String) -> some View {
+        Button {
+            copy(text)
+        } label: {
+            if feature.copiedToast {
+                Label("已复制", systemImage: "checkmark")
+            } else {
+                Label("复制", systemImage: "doc.on.doc")
+            }
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+    }
+
     private func copy(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+        feature.flashCopiedToast()
     }
 
     private func dictionaryText(_ entry: DictionaryEntry) -> String {

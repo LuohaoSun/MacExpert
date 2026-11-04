@@ -85,7 +85,7 @@ final class HotkeyCenter: ObservableObject {
         case OSStatus(-9878): return "快捷键已被其他应用占用"
         case OSStatus(-9879): return "热键参数无效"
         case OSStatus(-50): return "参数错误"
-        default: return "系统返回 OSStatus \(status)"
+        default: return "无法注册该快捷键"
         }
     }
 
