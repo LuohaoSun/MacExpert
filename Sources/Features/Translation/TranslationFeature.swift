@@ -32,6 +32,7 @@ final class TranslationFeature: ObservableObject {
     private let secrets: TranslationSecretStore
     private let client: TranslationClient
     private var activeTask: Task<Void, Never>?
+    private var copyToastTask: Task<Void, Never>?
     private var keyLoaded = false
     /// 每次提交/取消都递增；旧请求回来时据此丢弃结果，避免覆盖新状态。
     private var requestID = 0
@@ -75,6 +76,8 @@ final class TranslationFeature: ObservableObject {
     @Published var input: String = ""
     @Published var mode: TranslationMode = .auto
     @Published var state: TranslationPanelState = .idle
+    /// 点击「复制」后的短暂反馈，1.2 秒后自动复位。
+    @Published var copiedToast = false
     /// 每次呼出面板加一，输入框据此重新抢焦点。
     @Published var focusRequest = 0
 
@@ -119,6 +122,14 @@ final class TranslationFeature: ObservableObject {
         !baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// 设置页草稿与已保存配置不一致时为真，避免「配置已保存」误导正在编辑的用户。
+    var hasUnsavedChanges: Bool {
+        let base = draftBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let m = draftModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let k = draftKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        return base != baseURL || m != model || (!k.isEmpty && k != apiKey)
     }
 
     /// 只在真正要用 Key 的时候读密钥文件：单测构造 feature 时不应该碰用户数据。
@@ -237,6 +248,7 @@ final class TranslationFeature: ObservableObject {
         submittedText = text
         lastDecision = decision
         state = .loading
+        copiedToast = false
 
         let config = self.config
         let shouldStream = streamOutput
@@ -311,6 +323,18 @@ final class TranslationFeature: ObservableObject {
             state = .idle
         default:
             break
+        }
+    }
+
+    /// 复制成功后短暂显示「已复制」，不长期占用结果区空间。
+    @MainActor
+    func flashCopiedToast() {
+        copyToastTask?.cancel()
+        copiedToast = true
+        copyToastTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            guard !Task.isCancelled else { return }
+            self?.copiedToast = false
         }
     }
 }

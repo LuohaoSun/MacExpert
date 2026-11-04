@@ -21,7 +21,7 @@ enum TranslationError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .notConfigured:
-            return "还没有配置供应商，请先填写 Base URL、API Key 和模型。"
+            return "尚未配置翻译服务，请先填写接口地址、API 密钥和模型。"
         case .invalidURL:
             return "Base URL 格式不正确，请填写完整地址，例如 https://api.openai.com/v1。"
         case .insecureURL:
@@ -29,27 +29,27 @@ enum TranslationError: LocalizedError, Equatable {
         case .missingModel:
             return "请填写模型名称，例如 gpt-4o-mini。"
         case .unauthorized:
-            return "API Key 无效或没有权限（401），请检查密钥。"
+            return "API 密钥无效或无权限（401），请检查密钥配置。"
         case .notFound:
-            return "接口地址不对（404），请检查 Base URL，通常需要以 /v1 结尾。"
+            return "接口地址不正确（404），请检查 Base URL 是否完整。"
         case .rateLimited:
             return "请求过于频繁或额度用尽（429），稍后再试或检查账户额度。"
         case .server(let status):
-            return "供应商服务异常（\(status)），稍后再试。"
+            return "翻译服务暂时不可用（\(status)），请稍后再试。"
         case .http(let status, let message):
             return message.isEmpty
                 ? "请求失败（\(status)）。"
                 : "请求失败（\(status)）：\(message)"
         case .timeout:
-            return "请求超时，请检查网络或供应商状态。"
+            return "请求超时，请检查网络连接或翻译服务状态。"
         case .badResponse:
-            return "返回格式无法解析。"
+            return "翻译服务返回的数据格式无法解析，请重试或更换模型。"
         case .cancelled:
             return "已取消。"
         case .network(let message):
             return message.isEmpty ? "网络请求失败。" : message
         case .secretStore:
-            return "无法保存 API Key，请检查应用支持目录的读写权限。"
+            return "无法保存 API 密钥，请检查本机应用支持目录的读写权限。"
         }
     }
 }
@@ -498,7 +498,7 @@ final class TranslationClient {
         case .notConnectedToInternet, .networkConnectionLost:
             return .network("网络连接不可用，请检查网络。")
         case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed:
-            return .network("无法连接到供应商，请检查 Base URL 或网络。")
+            return .network("无法连接到翻译服务，请检查 Base URL 或网络。")
         case .secureConnectionFailed, .serverCertificateUntrusted:
             return .network("TLS 连接失败，请检查 HTTPS 证书。")
         default:

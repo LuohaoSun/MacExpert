@@ -67,7 +67,7 @@ struct TranslationView: View {
                     Text("也可以随时按")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    HotkeyCaps(caps: ["⌥", "Space"])
+                    HotkeyCaps(caps: ["⌥", "空格"])
                     Text("呼出。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -90,17 +90,17 @@ struct TranslationView: View {
     }
 
     private var statusTitle: String {
-        if !feature.enabled { return "热键翻译已暂停" }
+        if !feature.enabled { return "热键翻译已关闭" }
         if hotkeyFailure != nil { return "快捷键被占用" }
-        if !feature.isConfigured { return "等待配置供应商" }
+        if !feature.isConfigured { return "尚未配置翻译服务" }
         return "热键翻译已启用"
     }
 
     private var statusSubtitle: String {
-        if !feature.enabled { return "打开开关后，⌥Space 才会注册为全局热键。" }
-        if hotkeyFailure != nil { return "⌥Space 已被其他应用占用；仍可点「打开翻译面板」使用。" }
-        if !feature.isConfigured { return "填写下方 Base URL、API Key 和模型后即可翻译。" }
-        return "在任意应用按 ⌥Space 呼出面板；中文 ↔ 英文自动互译。"
+        if !feature.enabled { return "开启后可随时按 ⌥空格 呼出翻译面板" }
+        if hotkeyFailure != nil { return "⌥空格 已被其他应用占用；你仍可点击下方按钮打开翻译面板" }
+        if !feature.isConfigured { return "填写下方接口地址、API 密钥和模型后即可使用" }
+        return "在任意应用中按 ⌥空格 呼出面板，自动识别查词与长文翻译"
     }
 
     private var statusSubtitleColor: Color {
@@ -130,9 +130,9 @@ struct TranslationView: View {
                     .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("⌥Space 注册失败")
+                    Text("快捷键 ⌥空格 注册失败")
                         .font(.callout)
-                    Text("\(failure.message)（OSStatus \(failure.status)）。关掉占用快捷键的应用后，重新打开本页会自动重试。")
+                    Text("\(failure.message)。请关闭占用该快捷键的应用后点击重试。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -149,27 +149,27 @@ struct TranslationView: View {
         }
     }
 
-    // MARK: - 供应商
+    // MARK: - 翻译服务
 
     private var providerCard: some View {
         CardSurface {
             VStack(alignment: .leading, spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("供应商")
+                    Text("翻译服务")
                         .font(.headline)
-                    Text("任何 OpenAI Chat Completions 兼容服务都可以；只发送 model、messages 和 stream。")
+                    Text("支持 OpenAI 兼容接口（如 OpenAI、DeepSeek、本地网关等），仅发送待翻译文本与必要参数。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
-                SettingsRow("Base URL") {
+                SettingsRow("服务地址 (Base URL)") {
                     TextField("https://api.openai.com/v1", text: $feature.draftBaseURL)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 320)
                         .onSubmit(save)
                 }
 
-                SettingsRow("API Key", detail: "保存在本机应用支持目录，仅当前用户可读") {
+                SettingsRow("API 密钥", detail: "仅保存在本机，当前登录用户可读") {
                     SecureField("sk-…", text: $feature.draftKey)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 320)
@@ -244,17 +244,21 @@ struct TranslationView: View {
     }
 
     private var saveStateText: String {
+        if case .failed(let message) = feature.saveState { return message }
+        if feature.hasUnsavedChanges { return "有未保存的更改" }
         switch feature.saveState {
         case .idle:
-            return feature.isConfigured ? "配置已保存" : "尚未配置密钥"
+            return feature.isConfigured ? "配置已保存" : "尚未配置 API 密钥"
         case .saved:
             return "已保存"
-        case .failed(let message):
-            return message
+        case .failed:
+            return ""
         }
     }
 
     private var saveStateColor: Color {
+        if case .failed = feature.saveState { return .red }
+        if feature.hasUnsavedChanges { return .orange }
         switch feature.saveState {
         case .failed: return .red
         case .saved: return Theme.green
@@ -270,7 +274,7 @@ struct TranslationView: View {
                 Text("翻译行为")
                     .font(.headline)
 
-                SettingsRow("长文本目标语言") {
+                SettingsRow("长文本目标语言", detail: feature.longTextTarget.detail) {
                     Picker("长文本目标语言", selection: longTextTargetBinding) {
                         ForEach(LongTextTarget.allCases) { target in
                             Text(target.label).tag(target)
@@ -280,10 +284,6 @@ struct TranslationView: View {
                     .pickerStyle(.menu)
                     .fixedSize()
                 }
-
-                Text(feature.longTextTarget.detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
 
                 Divider()
 
@@ -298,9 +298,9 @@ struct TranslationView: View {
                 Divider()
 
                 VStack(alignment: .leading, spacing: 5) {
-                    ruleRow("词典", "中文 1–4 个汉字；外文 1 个词，或 2–3 个词且 ≤30 字符、无句末标点")
-                    ruleRow("翻译", "其余输入按长文本处理，保留段落、Markdown、代码块、专有名词和数字")
-                    ruleRow("方向", "词典固定中英互译；长文本方向由上面的设置决定，自动即「翻成另一种语言」")
+                    ruleRow("词典", "1–4 个汉字，或 1–3 个外文单词（不含句末标点）自动进入双语词典")
+                    ruleRow("翻译", "句子与段落按长文本翻译，自动保留段落格式、Markdown 与代码块")
+                    ruleRow("方向", "词典模式固定中英互译；长文本按上方所选的目标语言输出")
                 }
             }
         }
@@ -338,13 +338,13 @@ struct TranslationView: View {
             VStack(alignment: .leading, spacing: 7) {
                 Text("隐私")
                     .font(.headline)
-                Text("翻译时，输入文本会发送到你配置的供应商；请求不经过 MacExpert 的中转服务。")
+                Text("翻译时，输入的文本仅直接发送给你配置的翻译服务，不会经过任何第三方中转。")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("API Key 只保存在本机应用支持目录（文件权限 0600，仅当前用户可读）；应用日志不记录 Key，也不记录你输入的文本。")
+                Text("API 密钥仅保存在本机应用支持目录中；应用日志不会记录密钥或任何输入文本。")
                     .font(.caption)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -379,12 +379,12 @@ struct TranslationView: View {
 
         guard !base.isEmpty else {
             feature.connectionIsError = true
-            feature.connectionMessage = "先填写 Base URL。"
+            feature.connectionMessage = "请先填写接口地址。"
             return
         }
         guard !key.isEmpty else {
             feature.connectionIsError = true
-            feature.connectionMessage = "先填写 API Key。"
+            feature.connectionMessage = "请先填写 API 密钥。"
             return
         }
 
@@ -399,8 +399,8 @@ struct TranslationView: View {
             } else {
                 feature.connectionIsError = false
                 feature.connectionMessage = feature.models.isEmpty
-                    ? "连接成功，但供应商没有返回模型列表。"
-                    : "连接成功，找到 \(feature.models.count) 个模型。"
+                    ? "连接成功，但服务未返回模型列表，可手动输入模型名称。"
+                    : "连接成功，已获取 \(feature.models.count) 个可用模型。"
             }
         }
     }

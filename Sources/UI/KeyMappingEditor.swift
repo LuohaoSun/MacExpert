@@ -19,32 +19,28 @@ struct KeyMappingEditor: View {
             header
             Divider()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    triggerSection
-                    shortcutSection
-                    nameSection
+            VStack(alignment: .leading, spacing: 12) {
+                formCard
 
-                    if !model.errors.isEmpty {
-                        warning
-                    }
-
-                    summary
-
-                    if !model.isNew {
-                        deleteButton
-                    }
+                if !model.errors.isEmpty {
+                    warning
                 }
-                .padding(20)
+
+                summary
             }
+            .padding(20)
+
+            Divider()
+            footer
         }
-        .frame(width: 520)
-        .frame(minHeight: 560, maxHeight: 700)
+        .frame(width: 480)
+        .fixedSize(horizontal: false, vertical: true)
         .background(Color(nsColor: .windowBackgroundColor))
+        .tint(Theme.accent)
         .onDisappear {
             model.cancel()
         }
-        .alert("删除这条映射？", isPresented: $model.showDeleteConfirm) {
+        .alert("要删除这条映射吗？", isPresented: $model.showDeleteConfirm) {
             Button("取消", role: .cancel) {}
             Button("删除", role: .destructive) {
                 model.feature.delete(model.id)
@@ -58,93 +54,96 @@ struct KeyMappingEditor: View {
     // MARK: - 标题栏
 
     private var header: some View {
-        ZStack {
+        VStack(alignment: .leading, spacing: 3) {
             Text(model.title)
-                .font(.headline)
+                .font(.title3.weight(.semibold))
+            Text("选择鼠标按键并录制要触发的键盘快捷键")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+    }
 
-            HStack {
-                Button("取消") {
-                    model.cancel()
-                    dismiss()
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(Color.accentColor)
+    // MARK: - 表单
 
-                Spacer()
-
-                Button("保存") {
-                    guard let mapping = model.buildMapping() else { return }
-                    model.feature.finishEditor(context: context, mapping: mapping)
-                    dismiss()
-                }
-                .buttonStyle(.plain)
-                .fontWeight(.semibold)
-                .foregroundStyle(model.canSave ? Color.accentColor : Color.secondary)
-                .disabled(!model.canSave)
+    private var formCard: some View {
+        CardSurface {
+            VStack(alignment: .leading, spacing: 0) {
+                mouseButtonSection
+                Divider()
+                    .padding(.vertical, 12)
+                shortcutSection
+                Divider()
+                    .padding(.vertical, 12)
+                nameSection
             }
         }
-        .padding(.horizontal, 16)
-        .frame(height: 46)
     }
 
     // MARK: - 鼠标按键
 
-    private var triggerSection: some View {
+    private var mouseButtonSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("鼠标按键")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Button {
-                model.toggleButtonCapture()
-            } label: {
-                HStack(spacing: 8) {
-                    if model.isCapturingButton {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("请按一下鼠标侧键…")
-                        Spacer()
-                        Text("点击取消")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Image(systemName: "computermouse")
-                            .foregroundStyle(.secondary)
-                        Text(MouseButton.label(model.button))
-                            .fontWeight(.medium)
-                        Spacer()
-                        Text("点击后按下鼠标侧键")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Picker("鼠标按键", selection: $model.button) {
+                    ForEach([2, 3, 4, 5], id: \.self) { button in
+                        Text(MouseButton.label(button)).tag(button)
+                    }
+                    if ![2, 3, 4, 5].contains(model.button) {
+                        Text(MouseButton.label(model.button)).tag(model.button)
                     }
                 }
-                .padding(.horizontal, 12)
-                .frame(maxWidth: .infinity, minHeight: 40)
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(maxWidth: .infinity)
+
+                Button {
+                    model.toggleButtonCapture()
+                } label: {
+                    if model.isCapturingButton {
+                        Text("正在识别…")
+                    } else {
+                        Label("按键识别", systemImage: "computermouse")
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .fixedSize()
+                .accessibilityLabel(model.isCapturingButton ? "取消按键识别" : "按鼠标键自动识别")
+            }
+
+            if model.isCapturingButton {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("请按一下你要映射的鼠标侧键或中键…")
+                        .font(.caption)
+                    Spacer(minLength: 8)
+                    Button("取消") {
+                        model.stopButtonCapture()
+                    }
+                    .buttonStyle(.plain)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(Theme.accent)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.primary.opacity(0.045))
+                        .fill(Theme.accent.opacity(0.10))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(
-                            model.isCapturingButton ? Theme.accent : Color.primary.opacity(0.10),
-                            lineWidth: model.isCapturingButton ? 1.5 : 1
-                        )
+                        .strokeBorder(Theme.accent.opacity(0.40), lineWidth: 1)
                 )
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-
-            Picker("鼠标按键", selection: $model.button) {
-                ForEach([2, 3, 4, 5], id: \.self) { button in
-                    Text(MouseButton.label(button)).tag(button)
-                }
-                if ![2, 3, 4, 5].contains(model.button) {
-                    Text(MouseButton.label(model.button)).tag(model.button)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
 
             Text(model.buttonHint)
                 .font(.caption)
@@ -162,7 +161,7 @@ struct KeyMappingEditor: View {
 
     private var shortcutSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("发送快捷键")
+            Text("触发快捷键")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -185,16 +184,15 @@ struct KeyMappingEditor: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else {
-                        Text("还没有选择快捷键")
-                            .foregroundStyle(.tertiary)
-                        Spacer()
-                        Text("点击录制")
-                            .font(.caption)
+                        Image(systemName: "keyboard")
                             .foregroundStyle(.secondary)
+                        Text("点击录制快捷键")
+                            .foregroundStyle(.secondary)
+                        Spacer()
                     }
                 }
                 .padding(.horizontal, 12)
-                .frame(maxWidth: .infinity, minHeight: 44)
+                .frame(maxWidth: .infinity, minHeight: 40)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(Color(nsColor: .controlBackgroundColor))
@@ -224,12 +222,8 @@ struct KeyMappingEditor: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            TextField("例如：复制", text: $model.name)
+            TextField("留空自动使用快捷键名称，如「复制」", text: $model.name)
                 .textFieldStyle(.roundedBorder)
-
-            Text("留空会自动使用常见组合名。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
     }
 
@@ -291,14 +285,38 @@ struct KeyMappingEditor: View {
         )
     }
 
-    private var deleteButton: some View {
-        Button(role: .destructive) {
-            model.showDeleteConfirm = true
-        } label: {
-            Label("删除这条映射", systemImage: "trash")
-                .font(.callout)
+    // MARK: - 底部操作栏
+
+    private var footer: some View {
+        HStack(spacing: 10) {
+            if !model.isNew {
+                Button(role: .destructive) {
+                    model.showDeleteConfirm = true
+                } label: {
+                    Label("删除…", systemImage: "trash")
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.red)
+            }
+
+            Spacer(minLength: 12)
+
+            Button("取消") {
+                model.cancel()
+                dismiss()
+            }
+            .keyboardShortcut(.cancelAction)
+
+            Button("保存") {
+                guard let mapping = model.buildMapping() else { return }
+                model.feature.finishEditor(context: context, mapping: mapping)
+                dismiss()
+            }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .disabled(!model.canSave)
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(.red)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
     }
 }

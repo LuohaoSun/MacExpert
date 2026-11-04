@@ -45,6 +45,15 @@ final class MonitorStatusItems: NSObject {
     // MARK: - 创建与移除
 
     func setVisible(network: Bool, cpuGPU: Bool) {
+        // 菜单栏项目按创建顺序从左到右排列。关闭一项后再打开时，
+        // 新 item 会跑到另一项右边；需要重建时按「网络在左、CPU/GPU 在右」重排。
+        let needsRebuild = (network && networkItem == nil && cpuItem != nil)
+            || (cpuGPU && cpuItem == nil && networkItem != nil)
+        if needsRebuild {
+            removeNetworkItem()
+            removeCPUItem()
+        }
+
         if network {
             if networkItem == nil {
                 networkItem = makeItem(
@@ -298,7 +307,7 @@ final class MonitorTwoLineStatusView: NSView {
         text.append(
             NSAttributedString(
                 string: " \(value)",
-                attributes: [.font: font, .foregroundColor: NSColor.labelColor]
+                attributes: [.font: font, .foregroundColor: color]
             )
         )
         return text

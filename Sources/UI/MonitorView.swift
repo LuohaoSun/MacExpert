@@ -9,7 +9,11 @@ struct MonitorView: View {
         PageScaffold {
             statusCard
             menuBarCard
+                .disabled(!monitor.enabled)
+                .opacity(monitor.enabled ? 1 : 0.45)
             samplingCard
+                .disabled(!monitor.enabled)
+                .opacity(monitor.enabled ? 1 : 0.45)
             privacyCard
         }
     }
@@ -22,13 +26,9 @@ struct MonitorView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(monitor.enabled ? "系统监控已启用" : "系统监控已关闭")
                         .font(.headline)
-                    Text(
-                        monitor.enabled
-                            ? "菜单栏显示网速、CPU 与 GPU；全部数据只在本机读取。"
-                            : "关闭后停止采样，并移除两个菜单栏项目。"
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    Text(statusSubtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 Spacer(minLength: 12)
@@ -56,6 +56,22 @@ struct MonitorView: View {
         }
     }
 
+    private var statusSubtitle: String {
+        guard monitor.enabled else {
+            return "已停止采样，并不在菜单栏显示监控项。"
+        }
+        if !monitor.showNetwork && !monitor.showCPU {
+            return "已启用监控，但两个菜单栏显示项均已关闭。"
+        }
+        if monitor.showNetwork && !monitor.showCPU {
+            return "菜单栏正在显示网络速率；全部数据仅在本机读取。"
+        }
+        if !monitor.showNetwork && monitor.showCPU {
+            return "菜单栏正在显示 CPU 与 GPU 利用率；全部数据仅在本机读取。"
+        }
+        return "菜单栏正在显示网络速率与 CPU / GPU 利用率；全部数据仅在本机读取。"
+    }
+
     // MARK: - 菜单栏
 
     private var menuBarCard: some View {
@@ -66,25 +82,27 @@ struct MonitorView: View {
 
                 SettingsRow(
                     "网络速率",
-                    detail: "两行显示，宽度固定"
+                    detail: "上下两行显示实时上传与下载速率，宽度固定不跳动"
                 ) {
                     Toggle("", isOn: showNetworkBinding)
                         .labelsHidden()
                         .toggleStyle(.switch)
+                        .controlSize(.small)
                         .accessibilityLabel("在菜单栏显示网络速率")
                 }
 
                 SettingsRow(
                     "CPU / GPU",
-                    detail: "两行显示 CPU 与 GPU 利用率"
+                    detail: "上下两行显示处理器与图形处理器总利用率"
                 ) {
                     Toggle("", isOn: showCPUBinding)
                         .labelsHidden()
                         .toggleStyle(.switch)
+                        .controlSize(.small)
                         .accessibilityLabel("在菜单栏显示 CPU 与 GPU")
                 }
 
-                Text("点击菜单栏图标查看实时速率、历史和 Top 进程。")
+                Text("点击菜单栏中的网络或 CPU/GPU 图标，可分别展开对应的历史曲线与高占用进程。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -100,10 +118,10 @@ struct MonitorView: View {
                     .font(.headline)
 
                 SettingsRow(
-                    "刷新间隔",
-                    detail: "菜单栏图标和详情弹窗共用这个频率"
+                    "采样间隔",
+                    detail: "菜单栏数值与详情弹窗共用此采样频率"
                 ) {
-                    Picker("刷新间隔", selection: intervalBinding) {
+                    Picker("采样间隔", selection: intervalBinding) {
                         Text("1 秒").tag(1.0)
                         Text("2 秒").tag(2.0)
                         Text("5 秒").tag(5.0)
@@ -111,7 +129,7 @@ struct MonitorView: View {
                     .labelsHidden()
                     .pickerStyle(.segmented)
                     .frame(width: 220)
-                    .accessibilityLabel("刷新间隔")
+                    .accessibilityLabel("采样间隔")
                 }
             }
         }
@@ -122,7 +140,7 @@ struct MonitorView: View {
     private var privacyCard: some View {
         CardSurface {
             VStack(alignment: .leading, spacing: 10) {
-                Label("隐私", systemImage: "lock.shield")
+                Text("隐私")
                     .font(.headline)
 
                 privacyLine("全部数据在本机采集，只保存在内存和菜单栏详情中。")

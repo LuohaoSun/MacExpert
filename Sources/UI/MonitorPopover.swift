@@ -41,6 +41,7 @@ struct MonitorPopoverView: View {
         }
         .frame(width: 340, height: Self.contentHeight(for: kind))
         .background(Color(nsColor: .windowBackgroundColor))
+        .tint(Theme.accent)
     }
 
     // MARK: 顶栏
@@ -83,7 +84,7 @@ struct MonitorPopoverView: View {
 
     private var usageSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionTitle("处理器")
+            sectionTitle("总览")
             HStack(spacing: 10) {
                 usageTile("CPU", monitor.cpuUsage)
                 usageTile("GPU", monitor.gpuUsage)
@@ -149,11 +150,11 @@ struct MonitorPopoverView: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 2) {
                 Text("\(index + 1)")
-                    .font(.system(size: 8.5, design: .monospaced))
+                    .font(.system(size: 9.5, design: .monospaced))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
                 Text("\(Int(min(max(value, 0), 100).rounded()))%")
-                    .font(.system(size: 8.5, design: .monospaced))
+                    .font(.system(size: 9.5, design: .monospaced))
                     .monospacedDigit()
                     .foregroundStyle(usageColor(value))
             }
@@ -177,17 +178,21 @@ struct MonitorPopoverView: View {
     private var processorHistorySection: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 6) {
-                sectionTitle("最近 \(MonitorHistory.capacity) 次采样")
+                sectionTitle(historyWindowTitle)
                 Spacer(minLength: 4)
                 legendDot("CPU", color: Theme.accent)
-                legendDot("GPU", color: Theme.green)
+                if monitor.gpuSupported {
+                    legendDot("GPU", color: Theme.green)
+                }
             }
 
             ZStack {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(Color.primary.opacity(0.03))
                 Sparkline(values: detail.history.cpu, maximum: 100, color: Theme.accent)
-                Sparkline(values: detail.history.gpu, maximum: 100, color: Theme.green)
+                if monitor.gpuSupported {
+                    Sparkline(values: detail.history.gpu, maximum: 100, color: Theme.green)
+                }
             }
             .frame(height: 58)
 
@@ -197,6 +202,12 @@ struct MonitorPopoverView: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    /// 历史曲线的横轴覆盖时长；只有一屏采样点，写明时间更有帮助。
+    private var historyWindowTitle: String {
+        let seconds = Int(MonitorHistory.capacity) * Int(monitor.refreshInterval)
+        return "最近 \(MonitorHistory.capacity) 次采样（约 \(seconds) 秒）"
     }
 
     private var topCPUProcessesSection: some View {
@@ -260,7 +271,7 @@ struct MonitorPopoverView: View {
                 networkTile(
                     "下载",
                     MonitorFormat.detailedRate(monitor.downloadRate),
-                    color: .blue,
+                    color: Theme.accent,
                     systemImage: "arrow.down"
                 )
             }
@@ -293,10 +304,10 @@ struct MonitorPopoverView: View {
     private var networkHistorySection: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 6) {
-                sectionTitle("最近 \(MonitorHistory.capacity) 次采样")
+                sectionTitle(historyWindowTitle)
                 Spacer(minLength: 4)
                 legendDot("上传", color: .orange)
-                legendDot("下载", color: .blue)
+                legendDot("下载", color: Theme.accent)
             }
 
             ZStack {
@@ -305,7 +316,7 @@ struct MonitorPopoverView: View {
                 Sparkline(
                     values: detail.history.download,
                     maximum: networkMaximum,
-                    color: .blue
+                    color: Theme.accent
                 )
                 Sparkline(
                     values: detail.history.upload,
@@ -328,7 +339,7 @@ struct MonitorPopoverView: View {
     private var topNetworkProcessesSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                sectionTitle("占用最高的进程")
+                sectionTitle("流量最高的进程")
                 Spacer(minLength: 4)
                 Text("网络")
                     .font(.caption2)
@@ -371,12 +382,13 @@ struct MonitorPopoverView: View {
                 .font(.caption)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .help(row.name)
 
             Spacer(minLength: 6)
 
             HStack(spacing: 5) {
                 Text("↓ \(MonitorFormat.compactRate(row.download))")
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(Theme.accent)
                 Text("↑ \(MonitorFormat.compactRate(row.upload))")
                     .foregroundStyle(.orange)
             }
@@ -404,6 +416,7 @@ struct MonitorPopoverView: View {
                 .font(.caption)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .help(name)
 
             Spacer(minLength: 6)
 
@@ -424,7 +437,7 @@ struct MonitorPopoverView: View {
 
             Spacer(minLength: 8)
 
-            Button("打开监控页", action: onOpenMonitor)
+            Button("监控设置…", action: onOpenMonitor)
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
         }
@@ -457,7 +470,8 @@ struct MonitorPopoverView: View {
         case .normal:
             return .primary
         case .warning:
-            return .yellow
+            // 浅色弹窗里黄色文字对比度太低，用橙色保证 80% 以上仍清晰可读。
+            return .orange
         case .critical:
             return .red
         }
@@ -519,6 +533,9 @@ final class MonitorPopoverController: NSObject, NSPopoverDelegate {
 
     private let popover = NSPopover()
     private let onOpenMonitor: () -> Void
+    private var currentKind: MonitorStatusKind?
+    /// 因为切换到另一个菜单栏项目而主动关闭时，不要结束详情采样。
+    private var isSwitchingKind = false
 
     init(onOpenMonitor: @escaping () -> Void) {
         self.onOpenMonitor = onOpenMonitor
@@ -530,11 +547,30 @@ final class MonitorPopoverController: NSObject, NSPopoverDelegate {
 
     func toggle(relativeTo button: NSStatusBarButton, kind: MonitorStatusKind) {
         if popover.isShown {
+            if currentKind == kind {
+                popover.performClose(nil)
+                return
+            }
+
+            // 直接切换到另一个菜单栏项目，避免用户先关掉再点第二次。
+            isSwitchingKind = true
+            let wasAnimating = popover.animates
+            popover.animates = false
             popover.performClose(nil)
+            popover.animates = wasAnimating
+            // 等旧弹窗完成关闭后再挂到新按钮上，避免 show 被正在关闭的 popover 忽略。
+            DispatchQueue.main.async { [weak self] in
+                self?.present(relativeTo: button, kind: kind)
+            }
             return
         }
 
+        present(relativeTo: button, kind: kind)
+    }
+
+    private func present(relativeTo button: NSStatusBarButton, kind: MonitorStatusKind) {
         MonitorFeature.shared.beginDetail(kind)
+        currentKind = kind
 
         let view = MonitorPopoverView(
             monitor: .shared,
@@ -553,6 +589,7 @@ final class MonitorPopoverController: NSObject, NSPopoverDelegate {
 
         if !popover.isShown {
             MonitorFeature.shared.endDetail()
+            currentKind = nil
         }
     }
 
@@ -562,6 +599,11 @@ final class MonitorPopoverController: NSObject, NSPopoverDelegate {
     }
 
     func popoverDidClose(_ notification: Notification) {
+        if isSwitchingKind {
+            isSwitchingKind = false
+            return
+        }
+        currentKind = nil
         MonitorFeature.shared.endDetail()
     }
 }

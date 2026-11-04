@@ -22,7 +22,7 @@ struct TypeClipView: View {
             useCaseCard
         }
         .alert(
-            "开启诊断日志？",
+            "要开启诊断日志吗？",
             isPresented: Binding(
                 get: { clip.debugConfirmPending },
                 set: { if !$0 { clip.debugConfirmPending = false } }
@@ -89,9 +89,9 @@ struct TypeClipView: View {
     }
 
     private var statusTitle: String {
-        if !app.trusted { return "等待辅助功能权限" }
-        if !clip.enabled { return "剪贴板敲入已暂停" }
-        if !clip.clipboardOK { return "等待可敲入文本" }
+        if !app.trusted { return "需要辅助功能权限" }
+        if !clip.enabled { return "剪贴板敲入已关闭" }
+        if !clip.clipboardOK { return "剪贴板暂无可输入文本" }
 
         switch clip.phase {
         case .idle: return "剪贴板敲入已启用"
@@ -104,7 +104,7 @@ struct TypeClipView: View {
 
     private var statusSubtitle: String {
         if !app.trusted { return "授权后按 ⌃⌘V 开始敲入" }
-        if !clip.enabled { return "热键已暂停，打开开关后恢复" }
+        if !clip.enabled { return "快捷键已停用，开启后即可恢复" }
         if !clip.clipboardOK { return clipboardActionHint }
         if let error = clip.lastError { return error }
         if clip.isActive { return "\(clipboardLine) · 再按一次 ⌃⌘V 中断" }
@@ -135,12 +135,8 @@ struct TypeClipView: View {
     private var statusColor: Color {
         if !app.trusted { return .orange }
         if !clip.enabled { return .secondary }
-        switch clip.phase {
-        case .idle:
-            return clip.clipboardOK ? Theme.accent : .secondary
-        default:
-            return clip.phase.color
-        }
+        guard clip.clipboardOK else { return .secondary }
+        return clip.phase.color
     }
 
     private var enabledBinding: Binding<Bool> {
@@ -198,11 +194,12 @@ struct TypeClipView: View {
 
                 SettingsRow(
                     "结尾按回车",
-                    detail: "敲入完成后补一个 Return，适合提交命令"
+                    detail: "敲入完成后自动补按一次回车键"
                 ) {
                     Toggle("", isOn: enterBinding)
                         .labelsHidden()
                         .toggleStyle(.switch)
+                        .controlSize(.small)
                 }
             }
         }
@@ -210,7 +207,7 @@ struct TypeClipView: View {
 
     private var effectiveDetail: String {
         let p = clip.effectiveRaw
-        return "手动 · 间隔 \(Int(p.interval))ms · 按住 \(Int(p.hold))ms · 抖动 \(Int(p.jitter))ms · 修饰键 \(Int(p.modifierDelay))ms"
+        return "手动 · 间隔 \(Int(p.interval))ms · 按键时长 \(Int(p.hold))ms · 随机浮动 \(Int(p.jitter))ms · 修饰键等待 \(Int(p.modifierDelay))ms"
     }
 
     // MARK: - 高级参数
@@ -227,6 +224,7 @@ struct TypeClipView: View {
                         Toggle("", isOn: manualBinding)
                             .labelsHidden()
                             .toggleStyle(.switch)
+                            .controlSize(.small)
                     }
 
                     let d = TypeClipFeature.derived(paceMs: clip.paceMs)
@@ -236,25 +234,25 @@ struct TypeClipView: View {
                         range: 50...500
                     )
                     sliderRow(
-                        "按住时长",
+                        "按键时长",
                         value: rawBinding(\.holdMs, fallback: d.hold),
                         range: 20...150
                     )
                     sliderRow(
-                        "随机抖动",
+                        "随机浮动",
                         value: rawBinding(\.jitterMs, fallback: d.jitter),
                         range: 0...80
                     )
                     sliderRow(
-                        "修饰键延迟",
+                        "修饰键等待",
                         value: rawBinding(\.modifierDelayMs, fallback: d.modifierDelay),
                         range: 0...200
                     )
 
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(clip.manual
-                             ? "拖动滑杆即使用手动参数；移动速度滑杆会自动退出。"
-                             : "拖动任一滑杆会自动开启手动覆盖；仅在速度轴与实测不符时使用。")
+                             ? "当前使用手动参数；拖动上方速度滑杆可自动恢复联动。"
+                             : "拖动任一滑杆即可单独微调；日常使用直接调节速度即可。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Spacer(minLength: 4)
@@ -276,19 +274,20 @@ struct TypeClipView: View {
             ) {
                 VStack(alignment: .leading, spacing: 10) {
                     SettingsRow(
-                        "记录逐字符注入路径",
-                        detail: "排查 # 退化成 3 这类问题时再打开"
+                        "记录逐字符输入日志",
+                        detail: "仅在排查特殊符号输入异常时开启"
                     ) {
                         Toggle("", isOn: debugBinding)
                             .labelsHidden()
                             .toggleStyle(.switch)
+                            .controlSize(.small)
                     }
 
                     LogPathRow()
 
                     Text(clip.debugLog
-                         ? "正在记录被敲入的字符明文（等于剪贴板内容），排查完请立刻关闭"
-                         : "开启后会记录被敲入的字符明文（等于剪贴板内容），开启前会再次确认")
+                         ? "正在记录剪贴板完整文字，排查完成后请立即关闭。"
+                         : "开启后会记录剪贴板完整文字，开启前会再次确认。")
                         .font(.caption)
                         .foregroundStyle(clip.debugLog ? Color.orange : Color.secondary)
                 }
@@ -345,11 +344,11 @@ struct TypeClipView: View {
                     HotkeyCaps(caps: ["⌃", "⌘", "↩"])
                 }
                 if let failure = typeClipHotkeyFailure {
-                    Text("热键未注册：\(failure.message)。请检查系统键盘快捷键冲突。")
+                    Text("快捷键未生效：\(failure.message)。请检查是否与其他应用冲突。")
                         .font(.caption)
                         .foregroundStyle(.orange)
                 } else {
-                    Text("敲入过程中再按一次任意热键即可中断。")
+                    Text("敲入过程中再按一次快捷键即可随时中断。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -368,12 +367,12 @@ struct TypeClipView: View {
             VStack(alignment: .leading, spacing: 7) {
                 Text("适用场景")
                     .font(.headline)
-                Text("远程桌面、堡垒机、虚拟机，以及任何 ⌘V 被禁用或剪贴板不互通的地方。")
+                Text("适用于远程桌面、堡垒机、虚拟机等禁用 ⌘V 粘贴或剪贴板不互通的环境。")
                     .font(.callout)
                     .foregroundStyle(.secondary)
-                Text("远程端完全拦截合成键盘事件时，本工具无法绕过。")
+                Text("若远程端完全禁止模拟按键输入，本工具无法绕过。")
                     .font(.caption)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
             }
         }
     }

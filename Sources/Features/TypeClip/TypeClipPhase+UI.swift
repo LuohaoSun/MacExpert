@@ -14,10 +14,10 @@ extension TypeClipFeature.Phase {
 
     var color: Color {
         switch self {
-        case .idle: return Theme.accent
-        case .typing: return .orange
+        case .idle: return Theme.green
+        case .typing: return Theme.accent
         case .done: return Theme.green
-        case .aborted: return Color.gray
+        case .aborted: return .secondary
         case .failed: return .red
         }
     }
